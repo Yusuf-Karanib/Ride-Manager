@@ -110,6 +110,84 @@ export async function banDevice(
   return data as BannedDevice;
 }
 
+export interface ScheduledRide {
+  id: string;
+  rider_id: string;
+  pickup: string;
+  dropoff: string;
+  initial_offer: number;
+  scheduled_at: string;
+  notes: string | null;
+  status: "pending" | "promoted" | "cancelled" | "expired";
+  promoted_ride_id: string | null;
+  created_at: string;
+}
+
+export interface NewScheduledRideInput {
+  rider_id: string;
+  pickup: string;
+  dropoff: string;
+  initial_offer: number;
+  scheduled_at: string; // ISO timestamp
+  notes?: string;
+}
+
+export async function scheduleRide(
+  input: NewScheduledRideInput,
+): Promise<ScheduledRide> {
+  const { data, error } = await supabase
+    .from("scheduled_rides")
+    .insert(input)
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data as ScheduledRide;
+}
+
+export async function fetchMyScheduledRides(
+  riderId: string,
+): Promise<ScheduledRide[]> {
+  const { data, error } = await supabase
+    .from("scheduled_rides")
+    .select("*")
+    .eq("rider_id", riderId)
+    .in("status", ["pending", "promoted"])
+    .order("scheduled_at", { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as ScheduledRide[];
+}
+
+export async function cancelScheduledRide(id: string): Promise<void> {
+  const { error } = await supabase
+    .from("scheduled_rides")
+    .update({ status: "cancelled" })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Driver-side helper. When pg_cron isn't installed, the driver feed should
+ * merge these into the open-rides list itself — they represent rides whose
+ * scheduled time is within the next 30 minutes.
+ */
+export async function fetchUpcomingScheduledRides(
+  windowMinutes: number = 30,
+): Promise<ScheduledRide[]> {
+  const horizon = new Date(Date.now() + windowMinutes * 60_000).toISOString();
+  const { data, error } = await supabase
+    .from("scheduled_rides")
+    .select("*")
+    .eq("status", "pending")
+    .lte("scheduled_at", horizon)
+    .gte("scheduled_at", new Date(Date.now() - 5 * 60_000).toISOString())
+    .order("scheduled_at", { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as ScheduledRide[];
+}
+
 export async function createReport(input: NewReportInput): Promise<Report> {
   const { data, error } = await supabase
     .from("reports")
