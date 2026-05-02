@@ -305,6 +305,87 @@ export async function countDriverActiveSharedRides(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Saved locations                                                            */
+/* -------------------------------------------------------------------------- */
+
+export type SavedLocationKind = "home" | "work" | "other";
+
+export interface SavedLocation {
+  id: string;
+  user_id: string;
+  kind: SavedLocationKind;
+  label: string;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  created_at: string;
+}
+
+export interface NewSavedLocationInput {
+  user_id: string;
+  kind: SavedLocationKind;
+  label: string;
+  address: string;
+  lat?: number | null;
+  lng?: number | null;
+}
+
+export type SavedLocationPatch = Partial<
+  Omit<SavedLocation, "id" | "user_id" | "created_at">
+>;
+
+/** Fetch all saved locations for a user, Home/Work first, then by created_at desc. */
+export async function fetchSavedLocations(
+  userId: string,
+): Promise<SavedLocation[]> {
+  const { data, error } = await supabase
+    .from("saved_locations")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as SavedLocation[];
+
+  // Pin home → work → others (creation order preserved within "other").
+  const order: Record<SavedLocationKind, number> = { home: 0, work: 1, other: 2 };
+  return rows.slice().sort((a, b) => order[a.kind] - order[b.kind]);
+}
+
+export async function createSavedLocation(
+  input: NewSavedLocationInput,
+): Promise<SavedLocation> {
+  const { data, error } = await supabase
+    .from("saved_locations")
+    .insert(input)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as SavedLocation;
+}
+
+export async function updateSavedLocation(
+  id: string,
+  patch: SavedLocationPatch,
+): Promise<SavedLocation> {
+  const { data, error } = await supabase
+    .from("saved_locations")
+    .update(patch)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as SavedLocation;
+}
+
+export async function deleteSavedLocation(id: string): Promise<void> {
+  const { error } = await supabase
+    .from("saved_locations")
+    .delete()
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/* -------------------------------------------------------------------------- */
 /* Driver onboarding                                                          */
 /* -------------------------------------------------------------------------- */
 
