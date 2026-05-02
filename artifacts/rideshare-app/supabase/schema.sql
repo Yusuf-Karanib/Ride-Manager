@@ -50,6 +50,26 @@ create table if not exists public.reports (
 --     flip many times per day).
 -- Decoupling keeps writes cheap and lets the verification table be admin-
 -- write-only without hindering self-service availability toggling.
+create table if not exists public.notifications (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  type       text not null
+               check (type in (
+                 'bid_accepted', 'bid_received', 'ride_update',
+                 'promo', 'safety', 'system'
+               )),
+  title      text not null,
+  body       text,
+  -- Optional in-app deep-link path the row navigates to on tap.
+  link       text,
+  ride_id    uuid references public.rides(id) on delete set null,
+  -- NULL == unread. Storing the read timestamp instead of a boolean keeps
+  -- "when did you actually see this?" for analytics and lets us trivially
+  -- mark something unread again by setting back to NULL.
+  read_at    timestamptz,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.driver_availability (
   driver_id  uuid primary key references auth.users(id) on delete cascade,
   is_online  boolean not null default false,
@@ -168,6 +188,11 @@ create index if not exists support_tickets_status_idx
   on public.support_tickets(status) where status in ('open', 'in_progress');
 create index if not exists driver_availability_online_idx
   on public.driver_availability(driver_id) where is_online = true;
+create index if not exists notifications_user_created_idx
+  on public.notifications(user_id, created_at desc);
+-- Partial index tuned for the unread badge count query.
+create index if not exists notifications_user_unread_idx
+  on public.notifications(user_id) where read_at is null;
 
 -- Row Level Security --------------------------------------------------------
 alter table public.rides           enable row level security;
@@ -181,6 +206,7 @@ alter table public.saved_locations enable row level security;
 alter table public.nudges          enable row level security;
 alter table public.support_tickets enable row level security;
 alter table public.driver_availability enable row level security;
+alter table public.notifications       enable row level security;
 
 -- rides
 drop policy if exists "rides_select_authenticated" on public.rides;
@@ -261,6 +287,28 @@ create policy "promotions_select_authenticated"
   on public.promotions for select
   to authenticated
   using (active = true);
+
+-- notifications
+-- Notifications are server-generated (DB triggers / edge functions react
+-- to bids, promos, etc.). Authenticated users get read + update-own only;
+-- there is intentionally NO insert policy for authenticated, so a client
+-- cannot fabricate notifications. The producer path runs with service-role.
+drop policy if exists "notifications_select_own" on public.notifications;
+create policy "notifications_select_own"
+  on public.notifications for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+drop policy if exists "notifications_update_own_read" on public.notifications;
+create policy "notifications_update_own_read"
+  on public.notifications for update
+  to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- Realtime publication: lets the badge tick up the instant a server-side
+-- producer writes a new notification row.
+alter publication supabase_realtime add table public.notifications;
 
 -- driver_availability
 -- Driver owns their own row end-to-end. Insert + update via a single
