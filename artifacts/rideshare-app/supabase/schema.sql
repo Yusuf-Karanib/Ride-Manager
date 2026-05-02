@@ -19,6 +19,10 @@ create table if not exists public.rides (
 );
 -- For tables that already exist, the line above is a no-op; add the column:
 alter table public.rides add column if not exists is_shared boolean not null default false;
+-- `completed_at` is the canonical "this is when the cash changed hands"
+-- timestamp used by the driver earnings dashboard. Populated when a ride
+-- transitions to status='completed'.
+alter table public.rides add column if not exists completed_at timestamptz;
 
 create table if not exists public.bids (
   id         uuid primary key default gen_random_uuid(),
@@ -106,6 +110,8 @@ create table if not exists public.scheduled_rides (
 create index if not exists rides_rider_id_idx   on public.rides(rider_id);
 create index if not exists rides_status_idx     on public.rides(status);
 create index if not exists rides_is_shared_idx  on public.rides(is_shared) where is_shared = true;
+create index if not exists rides_completed_at_idx
+  on public.rides(completed_at desc) where status = 'completed';
 create index if not exists bids_ride_id_idx     on public.bids(ride_id);
 create index if not exists bids_driver_id_idx   on public.bids(driver_id);
 create index if not exists reports_ride_id_idx  on public.reports(ride_id);

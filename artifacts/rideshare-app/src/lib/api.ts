@@ -305,6 +305,59 @@ export async function countDriverActiveSharedRides(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Driver earnings                                                            */
+/* -------------------------------------------------------------------------- */
+
+export interface DriverEarning {
+  /** ISO timestamp the ride was marked completed. */
+  completed_at: string;
+  /** Final negotiated fare in SYP. */
+  amount: number;
+}
+
+/**
+ * Returns the driver's accepted-bid amounts on completed rides at or after
+ * `sinceIso`. Used by the earnings dashboard.
+ *
+ * Filters on bids.status='accepted' AND rides.status='completed' so cancelled
+ * trips and outstanding offers don't pollute the totals.
+ */
+export async function fetchDriverEarnings(
+  driverId: string,
+  sinceIso: string,
+): Promise<DriverEarning[]> {
+  const { data, error } = await supabase
+    .from("bids")
+    .select("amount, ride:rides!inner(completed_at, status)")
+    .eq("driver_id", driverId)
+    .eq("status", "accepted")
+    .eq("ride.status", "completed")
+    .gte("ride.completed_at", sinceIso);
+
+  if (error) throw new Error(error.message);
+
+  // Flatten nested join shape to a clean array of records.
+  type Row = {
+    amount: number;
+    ride: { completed_at: string | null; status: string } | null;
+  };
+  const rows = (data ?? []) as unknown as Row[];
+
+  return rows
+    .filter((r): r is Row & { ride: { completed_at: string; status: string } } =>
+      Boolean(r.ride?.completed_at),
+    )
+    .map((r) => ({
+      amount: r.amount,
+      completed_at: r.ride.completed_at,
+    }))
+    .sort(
+      (a, b) =>
+        new Date(a.completed_at).getTime() - new Date(b.completed_at).getTime(),
+    );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Saved locations                                                            */
 /* -------------------------------------------------------------------------- */
 
