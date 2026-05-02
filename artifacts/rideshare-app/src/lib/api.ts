@@ -305,6 +305,54 @@ export async function countDriverActiveSharedRides(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Driver availability (online / offline presence)                            */
+/* -------------------------------------------------------------------------- */
+
+export interface DriverAvailability {
+  driver_id: string;
+  is_online: boolean;
+  updated_at: string;
+}
+
+/** Returns the driver's current availability row, or null if never set. */
+export async function fetchDriverAvailability(
+  driverId: string,
+): Promise<DriverAvailability | null> {
+  const { data, error } = await supabase
+    .from("driver_availability")
+    .select("*")
+    .eq("driver_id", driverId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as DriverAvailability | null) ?? null;
+}
+
+/**
+ * Upserts the driver's availability state. Returns the persisted row.
+ * Single round-trip — `onConflict` does the heavy lifting so a brand-new
+ * driver doesn't need a pre-INSERT.
+ */
+export async function setDriverOnline(
+  driverId: string,
+  isOnline: boolean,
+): Promise<DriverAvailability> {
+  const { data, error } = await supabase
+    .from("driver_availability")
+    .upsert(
+      {
+        driver_id: driverId,
+        is_online: isOnline,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "driver_id" },
+    )
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as DriverAvailability;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Support tickets                                                            */
 /* -------------------------------------------------------------------------- */
 

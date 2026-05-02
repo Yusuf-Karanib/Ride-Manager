@@ -43,6 +43,19 @@ create table if not exists public.reports (
   created_at   timestamptz not null default now()
 );
 
+-- driver_availability is intentionally separate from `driver_profiles`:
+--   - driver_profiles holds slow-changing verification state (admin-managed,
+--     few writes per driver lifetime).
+--   - driver_availability holds fast-changing presence (driver-managed, can
+--     flip many times per day).
+-- Decoupling keeps writes cheap and lets the verification table be admin-
+-- write-only without hindering self-service availability toggling.
+create table if not exists public.driver_availability (
+  driver_id  uuid primary key references auth.users(id) on delete cascade,
+  is_online  boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.support_tickets (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users(id) on delete cascade,
@@ -153,6 +166,8 @@ create index if not exists support_tickets_user_id_created_idx
   on public.support_tickets(user_id, created_at desc);
 create index if not exists support_tickets_status_idx
   on public.support_tickets(status) where status in ('open', 'in_progress');
+create index if not exists driver_availability_online_idx
+  on public.driver_availability(driver_id) where is_online = true;
 
 -- Row Level Security --------------------------------------------------------
 alter table public.rides           enable row level security;
@@ -165,6 +180,7 @@ alter table public.driver_profiles enable row level security;
 alter table public.saved_locations enable row level security;
 alter table public.nudges          enable row level security;
 alter table public.support_tickets enable row level security;
+alter table public.driver_availability enable row level security;
 
 -- rides
 drop policy if exists "rides_select_authenticated" on public.rides;
@@ -245,6 +261,33 @@ create policy "promotions_select_authenticated"
   on public.promotions for select
   to authenticated
   using (active = true);
+
+-- driver_availability
+-- Driver owns their own row end-to-end. Insert + update via a single
+-- upsert path; no select policy for other users (the dispatch view, if any,
+-- runs with service-role).
+drop policy if exists "driver_availability_select_own" on public.driver_availability;
+create policy "driver_availability_select_own"
+  on public.driver_availability for select
+  to authenticated
+  using (auth.uid() = driver_id);
+
+drop policy if exists "driver_availability_upsert_own" on public.driver_availability;
+create policy "driver_availability_upsert_own"
+  on public.driver_availability for insert
+  to authenticated
+  with check (auth.uid() = driver_id);
+
+drop policy if exists "driver_availability_update_own" on public.driver_availability;
+create policy "driver_availability_update_own"
+  on public.driver_availability for update
+  to authenticated
+  using (auth.uid() = driver_id)
+  with check (auth.uid() = driver_id);
+
+-- Realtime publication: lets the driver's other devices/tabs sync presence
+-- via useDriverAvailability's postgres_changes subscription.
+alter publication supabase_realtime add table public.driver_availability;
 
 -- support_tickets
 -- Users can file tickets and read their own; admins use the service-role
