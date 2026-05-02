@@ -45,6 +45,20 @@ create table if not exists public.banned_devices (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.driver_profiles (
+  user_id            uuid primary key references auth.users(id) on delete cascade,
+  full_name          text not null,
+  phone              text not null,
+  national_id_url    text,
+  drivers_license_url text,
+  vehicle_photo_url  text,
+  status             text not null default 'pending_review'
+                       check (status in ('pending_review', 'approved', 'rejected')),
+  review_notes       text,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+
 create table if not exists public.promotions (
   code            text primary key,
   description     text,
@@ -83,6 +97,7 @@ create index if not exists scheduled_rides_status_idx on public.scheduled_rides(
 create index if not exists scheduled_rides_scheduled_at_idx on public.scheduled_rides(scheduled_at);
 create index if not exists scheduled_rides_rider_id_idx on public.scheduled_rides(rider_id);
 create index if not exists promotions_active_idx on public.promotions(active);
+create index if not exists driver_profiles_status_idx on public.driver_profiles(status);
 
 -- Row Level Security --------------------------------------------------------
 alter table public.rides           enable row level security;
@@ -91,6 +106,7 @@ alter table public.reports         enable row level security;
 alter table public.banned_devices  enable row level security;
 alter table public.scheduled_rides enable row level security;
 alter table public.promotions      enable row level security;
+alter table public.driver_profiles enable row level security;
 
 -- rides
 drop policy if exists "rides_select_authenticated" on public.rides;
@@ -171,6 +187,70 @@ create policy "promotions_select_authenticated"
   on public.promotions for select
   to authenticated
   using (active = true);
+
+-- driver_profiles
+-- A driver can read and write their own row. Status changes (approve/reject)
+-- belong to admin tooling via service-role; no UPDATE policy for "to authenticated"
+-- is granted on `status` deliberately — riders/drivers can't approve themselves.
+drop policy if exists "driver_profiles_select_own" on public.driver_profiles;
+create policy "driver_profiles_select_own"
+  on public.driver_profiles for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+drop policy if exists "driver_profiles_insert_own" on public.driver_profiles;
+create policy "driver_profiles_insert_own"
+  on public.driver_profiles for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists "driver_profiles_update_own_docs" on public.driver_profiles;
+create policy "driver_profiles_update_own_docs"
+  on public.driver_profiles for update
+  to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- ---------------------------------------------------------------------------
+-- Storage bucket for driver KYC documents.
+--
+-- Bucket is PRIVATE — these are sensitive documents (national ID).
+-- Files are read via short-lived signed URLs from admin tooling, never as
+-- public URLs.
+--
+-- Path convention: `{auth.uid()}/{doc_type}-{timestamp}.{ext}`
+-- e.g. `8b4f.../national_id-1714680000.jpg`
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('driver-docs', 'driver-docs', false)
+on conflict (id) do nothing;
+
+drop policy if exists "driver_docs_insert_own" on storage.objects;
+create policy "driver_docs_insert_own"
+  on storage.objects for insert
+  to authenticated
+  with check (
+    bucket_id = 'driver-docs'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "driver_docs_select_own" on storage.objects;
+create policy "driver_docs_select_own"
+  on storage.objects for select
+  to authenticated
+  using (
+    bucket_id = 'driver-docs'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "driver_docs_update_own" on storage.objects;
+create policy "driver_docs_update_own"
+  on storage.objects for update
+  to authenticated
+  using (
+    bucket_id = 'driver-docs'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
 
 -- ---------------------------------------------------------------------------
 -- OPTIONAL: server-side promotion of scheduled rides 30 minutes before time.
