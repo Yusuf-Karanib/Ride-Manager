@@ -67,6 +67,49 @@ export async function acceptBid(bidId: string): Promise<Bid> {
   return data as Bid;
 }
 
+export interface BannedDevice {
+  device_id: string;
+  reason: string | null;
+  created_at: string;
+}
+
+export async function fetchActiveReports(): Promise<Report[]> {
+  const { data, error } = await supabase
+    .from("reports")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Report[];
+}
+
+export async function fetchBannedDevices(): Promise<BannedDevice[]> {
+  const { data, error } = await supabase
+    .from("banned_devices")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as BannedDevice[];
+}
+
+export async function banDevice(
+  deviceId: string,
+  reason?: string,
+): Promise<BannedDevice> {
+  const { data, error } = await supabase
+    .from("banned_devices")
+    .upsert(
+      { device_id: deviceId, reason: reason ?? null },
+      { onConflict: "device_id" },
+    )
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data as BannedDevice;
+}
+
 export async function createReport(input: NewReportInput): Promise<Report> {
   const { data, error } = await supabase
     .from("reports")
