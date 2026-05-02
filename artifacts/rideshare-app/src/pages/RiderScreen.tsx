@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
-import "@/lib/MapIconFix";
+import { LazyRiderMap } from "@/components/LazyMap";
 import RiderNegotiation from "@/components/RiderNegotiation";
 
 interface RiderScreenProps {
@@ -44,20 +43,7 @@ export default function RiderScreen({ onRequestRide, onSignOut }: RiderScreenPro
             Sign out
           </button>
         </div>
-        <MapContainer
-          center={DAMASCUS}
-          zoom={13}
-          scrollWheelZoom={true}
-          style={{ height: "100%", width: "100%" }}
-        >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-          <Marker position={DAMASCUS}>
-            <Popup>Damascus city center</Popup>
-          </Marker>
-        </MapContainer>
+        <LazyRiderMap center={DAMASCUS} zoom={13} />
       </div>
 
       <div className="h-1/2 w-full bg-yellow-400 px-6 py-5 flex flex-col">
