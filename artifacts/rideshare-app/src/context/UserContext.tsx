@@ -20,8 +20,10 @@ interface UserContextValue {
   userType: UserType;
   deviceId: string;
   vehicle: Vehicle | null;
+  isAdmin: boolean;
   setVehicle: (vehicle: Vehicle) => void;
   clearVehicle: () => void;
+  setAdmin: (value: boolean) => void;
   loginAsRider: () => void;
   loginAsDriver: () => void;
   logout: () => void;
@@ -31,6 +33,7 @@ const UserContext = createContext<UserContextValue | undefined>(undefined);
 
 const DEVICE_ID_KEY = "mock_device_id";
 const VEHICLE_KEY = "driver_vehicle";
+const ADMIN_KEY = "is_admin";
 
 function generateDeviceId(): string {
   if (typeof window === "undefined") return "";
@@ -75,10 +78,26 @@ export function UserProvider({ children }: UserProviderProps) {
   const [userType, setUserType] = useState<UserType>(null);
   const [deviceId, setDeviceId] = useState<string>("");
   const [vehicle, setVehicleState] = useState<Vehicle | null>(null);
+  const [isAdmin, setIsAdminState] = useState<boolean>(false);
 
   useEffect(() => {
     setDeviceId(generateDeviceId());
     setVehicleState(loadStoredVehicle());
+    try {
+      setIsAdminState(localStorage.getItem(ADMIN_KEY) === "true");
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const setAdmin = useCallback((value: boolean) => {
+    setIsAdminState(value);
+    try {
+      if (value) localStorage.setItem(ADMIN_KEY, "true");
+      else localStorage.removeItem(ADMIN_KEY);
+    } catch {
+      // ignore
+    }
   }, []);
 
   const setVehicle = useCallback((v: Vehicle) => {
@@ -104,13 +123,15 @@ export function UserProvider({ children }: UserProviderProps) {
       userType,
       deviceId,
       vehicle,
+      isAdmin,
       setVehicle,
       clearVehicle,
+      setAdmin,
       loginAsRider: () => setUserType("rider"),
       loginAsDriver: () => setUserType("driver"),
       logout: () => setUserType(null),
     }),
-    [userType, deviceId, vehicle, setVehicle, clearVehicle],
+    [userType, deviceId, vehicle, isAdmin, setVehicle, clearVehicle, setAdmin],
   );
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
