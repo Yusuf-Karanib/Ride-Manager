@@ -1,13 +1,12 @@
 import { useState } from "react";
 import ReportModal from "@/components/ReportModal";
+import PriceDisplay from "@/components/PriceDisplay";
 
 interface ActiveRideScreenProps {
   agreedPriceSyp: number;
   onReportProblem: () => void;
   onCompleteTrip: () => void;
 }
-
-const formatPrice = (n: number) => new Intl.NumberFormat("en-US").format(n);
 
 export default function ActiveRideScreen({
   agreedPriceSyp,
@@ -18,15 +17,9 @@ export default function ActiveRideScreen({
 
   return (
     <div className="min-h-screen w-screen bg-white flex flex-col">
-      <section className="flex-1 flex flex-col items-center justify-center px-6 py-12">
-        <p className="text-xs sm:text-sm font-bold text-gray-500 uppercase tracking-[0.3em] mb-4">
-          Final Agreed Price
-        </p>
-        <div className="flex items-baseline gap-3">
-          <span className="text-7xl sm:text-9xl font-black text-black leading-none tracking-tight">
-            {formatPrice(agreedPriceSyp)}
-          </span>
-          <span className="text-2xl sm:text-3xl font-bold text-gray-600">SYP</span>
+      <section className="flex-1 flex items-center justify-center px-4 sm:px-6 py-8">
+        <div className="w-full max-w-md">
+          <PriceDisplay amountSyp={agreedPriceSyp} />
         </div>
       </section>
 
