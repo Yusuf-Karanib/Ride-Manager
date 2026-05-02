@@ -305,6 +305,83 @@ export async function countDriverActiveSharedRides(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Support tickets                                                            */
+/* -------------------------------------------------------------------------- */
+
+export type SupportCategory =
+  | "payment"
+  | "driver_behavior"
+  | "rider_behavior"
+  | "app_bug"
+  | "account"
+  | "lost_item"
+  | "safety"
+  | "other";
+
+export type SupportStatus = "open" | "in_progress" | "resolved" | "closed";
+
+export interface SupportTicket {
+  id: string;
+  user_id: string;
+  role: "rider" | "driver";
+  ride_id: string | null;
+  category: SupportCategory;
+  subject: string;
+  description: string;
+  status: SupportStatus;
+  admin_notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewSupportTicketInput {
+  user_id: string;
+  role: "rider" | "driver";
+  ride_id?: string | null;
+  category: SupportCategory;
+  subject: string;
+  description: string;
+}
+
+export async function createSupportTicket(
+  input: NewSupportTicketInput,
+): Promise<SupportTicket> {
+  const { data, error } = await supabase
+    .from("support_tickets")
+    .insert(input)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as SupportTicket;
+}
+
+export async function fetchMySupportTickets(
+  userId: string,
+): Promise<SupportTicket[]> {
+  const { data, error } = await supabase
+    .from("support_tickets")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as SupportTicket[];
+}
+
+/** Allow a user to mark their own ticket as closed without admin action. */
+export async function closeSupportTicket(
+  ticketId: string,
+): Promise<SupportTicket> {
+  const { data, error } = await supabase
+    .from("support_tickets")
+    .update({ status: "closed", updated_at: new Date().toISOString() })
+    .eq("id", ticketId)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as SupportTicket;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Nudges (rider-to-driver urgency pings)                                     */
 /* -------------------------------------------------------------------------- */
 

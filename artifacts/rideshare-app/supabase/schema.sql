@@ -43,6 +43,25 @@ create table if not exists public.reports (
   created_at   timestamptz not null default now()
 );
 
+create table if not exists public.support_tickets (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  role        text not null check (role in ('rider', 'driver')),
+  ride_id     uuid references public.rides(id) on delete set null,
+  category    text not null
+                check (category in (
+                  'payment', 'driver_behavior', 'rider_behavior',
+                  'app_bug', 'account', 'lost_item', 'safety', 'other'
+                )),
+  subject     text not null,
+  description text not null,
+  status      text not null default 'open'
+                check (status in ('open', 'in_progress', 'resolved', 'closed')),
+  admin_notes text,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
 create table if not exists public.nudges (
   id         uuid primary key default gen_random_uuid(),
   ride_id    uuid not null references public.rides(id) on delete cascade,
@@ -130,6 +149,10 @@ create index if not exists driver_profiles_status_idx on public.driver_profiles(
 create index if not exists saved_locations_user_id_idx on public.saved_locations(user_id);
 create index if not exists nudges_ride_id_created_at_idx
   on public.nudges(ride_id, created_at desc);
+create index if not exists support_tickets_user_id_created_idx
+  on public.support_tickets(user_id, created_at desc);
+create index if not exists support_tickets_status_idx
+  on public.support_tickets(status) where status in ('open', 'in_progress');
 
 -- Row Level Security --------------------------------------------------------
 alter table public.rides           enable row level security;
@@ -141,6 +164,7 @@ alter table public.promotions      enable row level security;
 alter table public.driver_profiles enable row level security;
 alter table public.saved_locations enable row level security;
 alter table public.nudges          enable row level security;
+alter table public.support_tickets enable row level security;
 
 -- rides
 drop policy if exists "rides_select_authenticated" on public.rides;
@@ -221,6 +245,30 @@ create policy "promotions_select_authenticated"
   on public.promotions for select
   to authenticated
   using (active = true);
+
+-- support_tickets
+-- Users can file tickets and read their own; admins use the service-role
+-- key to triage. Status / admin_notes can be updated by the user (e.g. they
+-- can close their own ticket), but the admin-only path uses service-role to
+-- bypass RLS entirely for the review workflow.
+drop policy if exists "support_tickets_insert_self" on public.support_tickets;
+create policy "support_tickets_insert_self"
+  on public.support_tickets for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists "support_tickets_select_own" on public.support_tickets;
+create policy "support_tickets_select_own"
+  on public.support_tickets for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+drop policy if exists "support_tickets_update_own" on public.support_tickets;
+create policy "support_tickets_update_own"
+  on public.support_tickets for update
+  to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 
 -- nudges
 -- A rider can ping the driver of their ride. The driver who has the
