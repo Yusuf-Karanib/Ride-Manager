@@ -19,7 +19,7 @@ const DefaultIcon = L.icon({
 L.Marker.prototype.options.icon = DefaultIcon;
 
 interface RiderScreenProps {
-  onRequestRide: () => void;
+  onRequestRide: (agreedPriceSyp: number) => void;
   onSignOut: () => void;
 }
 
@@ -43,9 +43,9 @@ export default function RiderScreen({ onRequestRide, onSignOut }: RiderScreenPro
     setNegotiationOpen(true);
   };
 
-  const handleAcceptOffer = (_offer: { id: string; driverName: string; priceSyp: number }) => {
+  const handleAcceptOffer = (offer: { id: string; driverName: string; priceSyp: number }) => {
     setNegotiationOpen(false);
-    onRequestRide();
+    onRequestRide(offer.priceSyp);
   };
 
   return (
