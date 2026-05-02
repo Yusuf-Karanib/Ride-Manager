@@ -4,6 +4,7 @@ import App from "./App";
 import AdminPanel from "./pages/AdminPanel";
 import { UserProvider } from "./context/UserContext";
 import AppErrorBoundary from "./components/AppErrorBoundary";
+import { registerServiceWorker } from "./lib/registerServiceWorker";
 import "./index.css";
 
 const basename = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -32,3 +33,6 @@ createRoot(document.getElementById("root")!).render(
     <RoutedTree />
   </BrowserRouter>,
 );
+
+// Production-only — see registerServiceWorker.ts for the why.
+registerServiceWorker();
