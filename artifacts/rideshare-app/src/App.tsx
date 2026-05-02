@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import AuthScreen from "@/pages/AuthScreen";
+import RoleSelectScreen from "@/pages/RoleSelectScreen";
 import RiderScreen from "@/pages/RiderScreen";
 import DriverScreen from "@/pages/DriverScreen";
 import ActiveRideScreen from "@/pages/ActiveRideScreen";
@@ -24,11 +25,12 @@ function generateDeviceId(): string {
 }
 
 type Role = "rider" | "driver" | null;
-type Screen = "auth" | "rider" | "driver" | "active-ride";
+type Screen = "auth" | "role-select" | "rider" | "driver" | "active-ride";
 
 function AppContent() {
   const [deviceId, setDeviceId] = useState<string>("");
   const [isBanned, setIsBanned] = useState<boolean>(false);
+  const [email, setEmail] = useState<string>("");
   const [role, setRole] = useState<Role>(null);
   const [screen, setScreen] = useState<Screen>("auth");
 
@@ -43,6 +45,11 @@ function AppContent() {
   if (isBanned) {
     return <BannedScreen deviceId={deviceId} />;
   }
+
+  const handleAuthenticated = (userEmail: string) => {
+    setEmail(userEmail);
+    setScreen("role-select");
+  };
 
   const handleSelectRole = (selectedRole: "rider" | "driver") => {
     setRole(selectedRole);
@@ -63,27 +70,42 @@ function AppContent() {
 
   const handleSignOut = () => {
     setRole(null);
+    setEmail("");
     setScreen("auth");
+  };
+
+  const renderCurrent = () => {
+    if (screen === "auth") {
+      return <AuthScreen onAuthenticated={handleAuthenticated} deviceId={deviceId} />;
+    }
+    if (screen === "role-select") {
+      return (
+        <RoleSelectScreen
+          email={email}
+          onSelectRole={handleSelectRole}
+          onSignOut={handleSignOut}
+        />
+      );
+    }
+    if (screen === "rider") {
+      return <RiderScreen onRequestRide={handleRequestRide} onSignOut={handleSignOut} />;
+    }
+    if (screen === "driver") {
+      return <DriverScreen onGoOnline={handleGoOnline} onSignOut={handleSignOut} />;
+    }
+    if (screen === "active-ride") {
+      return <ActiveRideScreen role={role} onEndRide={handleEndRide} />;
+    }
+    return null;
   };
 
   return (
     <Switch>
-      <Route path="/">
-        {screen === "auth" && (
-          <AuthScreen onSelectRole={handleSelectRole} deviceId={deviceId} />
-        )}
-        {screen === "rider" && (
-          <RiderScreen onRequestRide={handleRequestRide} onSignOut={handleSignOut} />
-        )}
-        {screen === "driver" && (
-          <DriverScreen onGoOnline={handleGoOnline} onSignOut={handleSignOut} />
-        )}
-        {screen === "active-ride" && (
-          <ActiveRideScreen role={role} onEndRide={handleEndRide} />
-        )}
+      <Route path="/banned">
+        <BannedScreen deviceId={deviceId} />
       </Route>
       <Route path="/auth">
-        <AuthScreen onSelectRole={handleSelectRole} deviceId={deviceId} />
+        <AuthScreen onAuthenticated={handleAuthenticated} deviceId={deviceId} />
       </Route>
       <Route path="/rider">
         {role === "rider" ? (
@@ -106,9 +128,7 @@ function AppContent() {
           <Redirect to="/" />
         )}
       </Route>
-      <Route path="/banned">
-        <BannedScreen deviceId={deviceId} />
-      </Route>
+      <Route path="/">{renderCurrent()}</Route>
     </Switch>
   );
 }
