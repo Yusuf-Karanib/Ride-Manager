@@ -304,6 +304,111 @@ export async function countDriverActiveSharedRides(
   return data?.length ?? 0;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Driver onboarding                                                          */
+/* -------------------------------------------------------------------------- */
+
+export const DRIVER_DOCS_BUCKET = "driver-docs";
+
+export type DriverDocType =
+  | "national_id"
+  | "drivers_license"
+  | "vehicle_photo";
+
+export interface DriverProfile {
+  user_id: string;
+  full_name: string;
+  phone: string;
+  national_id_url: string | null;
+  drivers_license_url: string | null;
+  vehicle_photo_url: string | null;
+  status: "pending_review" | "approved" | "rejected";
+  review_notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewDriverApplicationInput {
+  user_id: string;
+  full_name: string;
+  phone: string;
+  national_id_url: string;
+  drivers_license_url: string;
+  vehicle_photo_url: string;
+}
+
+function fileExtensionFor(file: File): string {
+  const parts = file.name.split(".");
+  if (parts.length > 1) {
+    const ext = parts.pop();
+    if (ext && /^[a-zA-Z0-9]{1,8}$/.test(ext)) return ext.toLowerCase();
+  }
+  // Fallback from MIME.
+  const mime = file.type.toLowerCase();
+  if (mime.includes("png")) return "png";
+  if (mime.includes("jpeg") || mime.includes("jpg")) return "jpg";
+  if (mime.includes("webp")) return "webp";
+  if (mime.includes("pdf")) return "pdf";
+  return "bin";
+}
+
+/** Upload a single driver document. Returns the storage path (not a URL). */
+export async function uploadDriverDoc(
+  userId: string,
+  docType: DriverDocType,
+  file: File,
+): Promise<string> {
+  const ext = fileExtensionFor(file);
+  const path = `${userId}/${docType}-${Date.now()}.${ext}`;
+  const { error } = await supabase.storage
+    .from(DRIVER_DOCS_BUCKET)
+    .upload(path, file, {
+      contentType: file.type || undefined,
+      upsert: true,
+      cacheControl: "3600",
+    });
+  if (error) throw new Error(error.message);
+  return path;
+}
+
+/**
+ * Insert (or update) the driver_profiles row for a user with the uploaded
+ * document paths. Status is set to 'pending_review' on every submission so
+ * re-submitting after a rejection puts the application back in review.
+ */
+export async function submitDriverApplication(
+  input: NewDriverApplicationInput,
+): Promise<DriverProfile> {
+  const { data, error } = await supabase
+    .from("driver_profiles")
+    .upsert(
+      {
+        ...input,
+        status: "pending_review",
+        review_notes: null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    )
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data as DriverProfile;
+}
+
+export async function fetchDriverProfile(
+  userId: string,
+): Promise<DriverProfile | null> {
+  const { data, error } = await supabase
+    .from("driver_profiles")
+    .select("*")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data ?? null) as DriverProfile | null;
+}
+
 export async function createReport(input: NewReportInput): Promise<Report> {
   const { data, error } = await supabase
     .from("reports")
