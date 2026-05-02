@@ -5,6 +5,22 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* FAST24 brand palette — high-contrast for direct sunlight readability.
+   These tokens generate Tailwind utilities like bg-midnight, text-sulfur,
+   border-sulfur-strong, etc. */
+@theme {
+  --color-midnight: #0F172A;
+  --color-midnight-soft: #1E293B;
+  --color-midnight-deep: #020617;
+  --color-sulfur: #EAFF00;
+  --color-sulfur-hover: #D9EE00;
+  --color-sulfur-dim: #B8CC00;
+  --color-paper: #FFFFFF;
+  --color-bone: #F8FAFC;
+  --color-alert: #EF4444;
+  --color-success: #22C55E;
+}
+
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
