@@ -1,41 +1,133 @@
-import { useLocation } from "wouter";
+import { useState } from "react";
+import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
+import markerIcon from "leaflet/dist/images/marker-icon.png";
+import markerShadow from "leaflet/dist/images/marker-shadow.png";
+
+const DefaultIcon = L.icon({
+  iconRetinaUrl: markerIcon2x,
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+L.Marker.prototype.options.icon = DefaultIcon;
 
 interface RiderScreenProps {
   onRequestRide: () => void;
   onSignOut: () => void;
 }
 
-export default function RiderScreen({ onRequestRide, onSignOut }: RiderScreenProps) {
-  return (
-    <div className="min-h-screen bg-white flex flex-col">
-      <header className="border-b border-gray-100 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-base font-semibold text-gray-900">Rider</h1>
-        <button
-          onClick={onSignOut}
-          className="text-sm text-gray-400 hover:text-gray-700 transition-colors"
-        >
-          Sign out
-        </button>
-      </header>
+const DAMASCUS: [number, number] = [33.5138, 36.2765];
 
-      <main className="flex-1 flex flex-col items-center justify-center px-6">
-        <div className="w-full max-w-sm text-center">
-          <div className="w-16 h-16 bg-gray-100 rounded-full mx-auto mb-6 flex items-center justify-center">
-            <svg className="w-7 h-7 text-gray-500" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
-            </svg>
-          </div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Where are you going?</h2>
-          <p className="text-sm text-gray-500 mb-8">Request a ride to your destination</p>
+export default function RiderScreen({ onRequestRide, onSignOut }: RiderScreenProps) {
+  const [pickup, setPickup] = useState("");
+  const [dropoff, setDropoff] = useState("");
+  const [price, setPrice] = useState<string>("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onRequestRide();
+  };
+
+  return (
+    <div className="h-screen w-screen flex flex-col overflow-hidden">
+      <div className="h-1/2 w-full relative">
+        <div className="absolute top-3 right-3 z-[1000]">
           <button
-            onClick={onRequestRide}
-            className="w-full py-3 px-4 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+            onClick={onSignOut}
+            className="px-3 py-1.5 bg-white text-sm font-medium text-gray-900 border border-gray-300 shadow"
           >
-            Request a Ride
+            Sign out
           </button>
         </div>
-      </main>
+        <MapContainer
+          center={DAMASCUS}
+          zoom={13}
+          scrollWheelZoom={true}
+          style={{ height: "100%", width: "100%" }}
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <Marker position={DAMASCUS}>
+            <Popup>Damascus city center</Popup>
+          </Marker>
+        </MapContainer>
+      </div>
+
+      <div className="h-1/2 w-full bg-yellow-400 px-6 py-5 flex flex-col">
+        <h2 className="text-lg font-bold text-black mb-4">Request a Ride</h2>
+
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1">
+          <div className="space-y-3 flex-1">
+            <div>
+              <label
+                htmlFor="pickup"
+                className="block text-xs font-bold text-black uppercase mb-1"
+              >
+                Pickup Landmark
+              </label>
+              <input
+                id="pickup"
+                type="text"
+                value={pickup}
+                onChange={(e) => setPickup(e.target.value)}
+                placeholder="e.g. Umayyad Square"
+                className="w-full px-3 py-2 border-2 border-black bg-white text-black text-sm focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="dropoff"
+                className="block text-xs font-bold text-black uppercase mb-1"
+              >
+                Dropoff Landmark
+              </label>
+              <input
+                id="dropoff"
+                type="text"
+                value={dropoff}
+                onChange={(e) => setDropoff(e.target.value)}
+                placeholder="e.g. Old City Gate"
+                className="w-full px-3 py-2 border-2 border-black bg-white text-black text-sm focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="price"
+                className="block text-xs font-bold text-black uppercase mb-1"
+              >
+                Offer Price (SYP)
+              </label>
+              <input
+                id="price"
+                type="number"
+                min={0}
+                step={1000}
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                placeholder="e.g. 25000"
+                className="w-full px-3 py-2 border-2 border-black bg-white text-black text-sm focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            className="mt-4 w-full py-4 bg-black text-white text-base font-bold uppercase tracking-wider border-2 border-black hover:bg-gray-900"
+          >
+            Request Ride
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
