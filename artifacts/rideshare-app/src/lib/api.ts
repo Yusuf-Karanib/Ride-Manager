@@ -305,6 +305,69 @@ export async function countDriverActiveSharedRides(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Nudges (rider-to-driver urgency pings)                                     */
+/* -------------------------------------------------------------------------- */
+
+/** Minimum gap between consecutive nudges on the same ride. */
+export const NUDGE_COOLDOWN_MS = 30_000;
+
+export class NudgeCooldownError extends Error {
+  remainingMs: number;
+  constructor(remainingMs: number) {
+    super(`Cooldown active. Try again in ${Math.ceil(remainingMs / 1000)}s.`);
+    this.name = "NudgeCooldownError";
+    this.remainingMs = remainingMs;
+  }
+}
+
+export interface Nudge {
+  id: string;
+  ride_id: string;
+  sender_id: string;
+  created_at: string;
+}
+
+/** Returns the most-recent nudge timestamp for a ride, or null if none. */
+export async function fetchLastNudgeAt(rideId: string): Promise<Date | null> {
+  const { data, error } = await supabase
+    .from("nudges")
+    .select("created_at")
+    .eq("ride_id", rideId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? new Date(data.created_at) : null;
+}
+
+/**
+ * Sends a nudge for a ride. Throws `NudgeCooldownError` if the most-recent
+ * nudge was within `NUDGE_COOLDOWN_MS`.
+ *
+ * The cooldown is checked client-side here AND enforced by the row-level
+ * security policy, so a patched-client spammer still gets blocked.
+ */
+export async function sendNudge(
+  rideId: string,
+  senderId: string,
+): Promise<Nudge> {
+  const last = await fetchLastNudgeAt(rideId);
+  if (last) {
+    const elapsed = Date.now() - last.getTime();
+    if (elapsed < NUDGE_COOLDOWN_MS) {
+      throw new NudgeCooldownError(NUDGE_COOLDOWN_MS - elapsed);
+    }
+  }
+  const { data, error } = await supabase
+    .from("nudges")
+    .insert({ ride_id: rideId, sender_id: senderId })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as Nudge;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Driver earnings                                                            */
 /* -------------------------------------------------------------------------- */
 

@@ -43,6 +43,13 @@ create table if not exists public.reports (
   created_at   timestamptz not null default now()
 );
 
+create table if not exists public.nudges (
+  id         uuid primary key default gen_random_uuid(),
+  ride_id    uuid not null references public.rides(id) on delete cascade,
+  sender_id  uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.banned_devices (
   device_id  text primary key,
   reason     text,
@@ -121,6 +128,8 @@ create index if not exists scheduled_rides_rider_id_idx on public.scheduled_ride
 create index if not exists promotions_active_idx on public.promotions(active);
 create index if not exists driver_profiles_status_idx on public.driver_profiles(status);
 create index if not exists saved_locations_user_id_idx on public.saved_locations(user_id);
+create index if not exists nudges_ride_id_created_at_idx
+  on public.nudges(ride_id, created_at desc);
 
 -- Row Level Security --------------------------------------------------------
 alter table public.rides           enable row level security;
@@ -131,6 +140,7 @@ alter table public.scheduled_rides enable row level security;
 alter table public.promotions      enable row level security;
 alter table public.driver_profiles enable row level security;
 alter table public.saved_locations enable row level security;
+alter table public.nudges          enable row level security;
 
 -- rides
 drop policy if exists "rides_select_authenticated" on public.rides;
@@ -211,6 +221,46 @@ create policy "promotions_select_authenticated"
   on public.promotions for select
   to authenticated
   using (active = true);
+
+-- nudges
+-- A rider can ping the driver of their ride. The driver who has the
+-- accepted bid can see (subscribe to) those pings in realtime. Sent rows
+-- are immutable from the client side — no UPDATE / DELETE policies are
+-- granted, so the audit trail is preserved.
+drop policy if exists "nudges_insert_rider" on public.nudges;
+create policy "nudges_insert_rider"
+  on public.nudges for insert
+  to authenticated
+  with check (
+    auth.uid() = sender_id
+    and exists (
+      select 1 from public.rides r
+      where r.id = nudges.ride_id
+        and r.rider_id = auth.uid()
+        and r.status in ('matched', 'active')
+    )
+  );
+
+drop policy if exists "nudges_select_party" on public.nudges;
+create policy "nudges_select_party"
+  on public.nudges for select
+  to authenticated
+  using (
+    exists (
+      select 1 from public.rides r
+      where r.id = nudges.ride_id and r.rider_id = auth.uid()
+    )
+    or exists (
+      select 1 from public.bids b
+      where b.ride_id = nudges.ride_id
+        and b.driver_id = auth.uid()
+        and b.status = 'accepted'
+    )
+  );
+
+-- Realtime publication: required for the driver's `useNudgeListener` hook
+-- to receive INSERT events via supabase.channel().on('postgres_changes', ...).
+alter publication supabase_realtime add table public.nudges;
 
 -- saved_locations
 -- Users own and manage their own pinned addresses end-to-end.
