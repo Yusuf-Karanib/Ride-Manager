@@ -5,6 +5,7 @@ import "leaflet/dist/leaflet.css";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
+import RiderNegotiation from "@/components/RiderNegotiation";
 
 const DefaultIcon = L.icon({
   iconRetinaUrl: markerIcon2x,
@@ -24,13 +25,26 @@ interface RiderScreenProps {
 
 const DAMASCUS: [number, number] = [33.5138, 36.2765];
 
+const MOCK_OFFERS = [
+  { id: "o1", driverName: "Ahmad K.", priceSyp: 28000 },
+  { id: "o2", driverName: "Layla M.", priceSyp: 32000 },
+  { id: "o3", driverName: "Omar S.", priceSyp: 25000 },
+  { id: "o4", driverName: "Nour H.", priceSyp: 35000 },
+];
+
 export default function RiderScreen({ onRequestRide, onSignOut }: RiderScreenProps) {
   const [pickup, setPickup] = useState("");
   const [dropoff, setDropoff] = useState("");
   const [price, setPrice] = useState<string>("");
+  const [negotiationOpen, setNegotiationOpen] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setNegotiationOpen(true);
+  };
+
+  const handleAcceptOffer = (_offer: { id: string; driverName: string; priceSyp: number }) => {
+    setNegotiationOpen(false);
     onRequestRide();
   };
 
@@ -128,6 +142,13 @@ export default function RiderScreen({ onRequestRide, onSignOut }: RiderScreenPro
           </button>
         </form>
       </div>
+
+      <RiderNegotiation
+        open={negotiationOpen}
+        offers={MOCK_OFFERS}
+        onAccept={handleAcceptOffer}
+        onClose={() => setNegotiationOpen(false)}
+      />
     </div>
   );
 }
