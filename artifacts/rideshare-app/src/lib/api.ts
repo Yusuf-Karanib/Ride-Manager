@@ -271,6 +271,39 @@ export async function validatePromoCode(
   };
 }
 
+/**
+ * Carpool / shared-ride limits.
+ *
+ * Enforcement note: this constant is the source of truth, but the actual
+ * cap must be checked at the bid-acceptance call site (count active shared
+ * rides via `countDriverActiveSharedRides`, refuse acceptance if >= MAX).
+ * Putting the check inside the toggle UI would only stop honest clients.
+ */
+export const MAX_CONCURRENT_SHARED_RIDES = 3;
+
+/**
+ * Count the rides that a given driver currently has accepted AND that are
+ * shared AND still in flight. Used by the accept flow to enforce
+ * `MAX_CONCURRENT_SHARED_RIDES`.
+ *
+ * Implementation: a ride is "owned" by a driver via an accepted bid.
+ * "In flight" means the ride status is 'matched' or 'active'.
+ */
+export async function countDriverActiveSharedRides(
+  driverId: string,
+): Promise<number> {
+  const { data, error } = await supabase
+    .from("bids")
+    .select("ride:rides!inner(id, is_shared, status)", { count: "exact" })
+    .eq("driver_id", driverId)
+    .eq("status", "accepted")
+    .eq("ride.is_shared", true)
+    .in("ride.status", ["matched", "active"]);
+
+  if (error) throw new Error(error.message);
+  return data?.length ?? 0;
+}
+
 export async function createReport(input: NewReportInput): Promise<Report> {
   const { data, error } = await supabase
     .from("reports")
