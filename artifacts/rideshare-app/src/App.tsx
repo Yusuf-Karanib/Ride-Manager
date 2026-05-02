@@ -27,6 +27,8 @@ function generateDeviceId(): string {
 type Role = "rider" | "driver" | null;
 type Screen = "auth" | "role-select" | "rider" | "driver" | "active-ride";
 
+
+
 function AppContent() {
   const [deviceId, setDeviceId] = useState<string>("");
   const [isBanned, setIsBanned] = useState<boolean>(false);
@@ -60,10 +62,6 @@ function AppContent() {
     setScreen("active-ride");
   };
 
-  const handleGoOnline = () => {
-    setScreen("active-ride");
-  };
-
   const handleEndRide = () => {
     setScreen(role === "rider" ? "rider" : "driver");
   };
@@ -91,7 +89,7 @@ function AppContent() {
       return <RiderScreen onRequestRide={handleRequestRide} onSignOut={handleSignOut} />;
     }
     if (screen === "driver") {
-      return <DriverScreen onGoOnline={handleGoOnline} onSignOut={handleSignOut} />;
+      return <DriverScreen onSignOut={handleSignOut} />;
     }
     if (screen === "active-ride") {
       return <ActiveRideScreen role={role} onEndRide={handleEndRide} />;
@@ -116,7 +114,7 @@ function AppContent() {
       </Route>
       <Route path="/driver">
         {role === "driver" ? (
-          <DriverScreen onGoOnline={handleGoOnline} onSignOut={handleSignOut} />
+          <DriverScreen onSignOut={handleSignOut} />
         ) : (
           <Redirect to="/" />
         )}
