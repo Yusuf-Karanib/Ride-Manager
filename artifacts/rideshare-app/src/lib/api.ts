@@ -305,6 +305,75 @@ export async function countDriverActiveSharedRides(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Notifications                                                              */
+/* -------------------------------------------------------------------------- */
+
+export type NotificationType =
+  | "bid_accepted"
+  | "bid_received"
+  | "ride_update"
+  | "promo"
+  | "safety"
+  | "system";
+
+export interface NotificationRow {
+  id: string;
+  user_id: string;
+  type: NotificationType;
+  title: string;
+  body: string | null;
+  link: string | null;
+  ride_id: string | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+export async function fetchNotifications(
+  userId: string,
+  limit = 50,
+): Promise<NotificationRow[]> {
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as NotificationRow[];
+}
+
+/** Cheap "is the badge non-zero?" query. */
+export async function fetchUnreadNotificationCount(
+  userId: string,
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .is("read_at", null);
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  const { error } = await supabase
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", id)
+    .is("read_at", null);
+  if (error) throw new Error(error.message);
+}
+
+export async function markAllNotificationsRead(userId: string): Promise<void> {
+  const { error } = await supabase
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .is("read_at", null);
+  if (error) throw new Error(error.message);
+}
+
+/* -------------------------------------------------------------------------- */
 /* Driver availability (online / offline presence)                            */
 /* -------------------------------------------------------------------------- */
 
