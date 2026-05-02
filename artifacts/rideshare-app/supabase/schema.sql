@@ -45,6 +45,22 @@ create table if not exists public.banned_devices (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.saved_locations (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  kind       text not null default 'other'
+               check (kind in ('home', 'work', 'other')),
+  label      text not null,
+  address    text not null,
+  lat        double precision,
+  lng        double precision,
+  created_at timestamptz not null default now()
+);
+-- A user can have at most one Home and one Work; "other" places are unlimited.
+create unique index if not exists saved_locations_user_kind_unique
+  on public.saved_locations(user_id, kind)
+  where kind in ('home', 'work');
+
 create table if not exists public.driver_profiles (
   user_id            uuid primary key references auth.users(id) on delete cascade,
   full_name          text not null,
@@ -98,6 +114,7 @@ create index if not exists scheduled_rides_scheduled_at_idx on public.scheduled_
 create index if not exists scheduled_rides_rider_id_idx on public.scheduled_rides(rider_id);
 create index if not exists promotions_active_idx on public.promotions(active);
 create index if not exists driver_profiles_status_idx on public.driver_profiles(status);
+create index if not exists saved_locations_user_id_idx on public.saved_locations(user_id);
 
 -- Row Level Security --------------------------------------------------------
 alter table public.rides           enable row level security;
@@ -107,6 +124,7 @@ alter table public.banned_devices  enable row level security;
 alter table public.scheduled_rides enable row level security;
 alter table public.promotions      enable row level security;
 alter table public.driver_profiles enable row level security;
+alter table public.saved_locations enable row level security;
 
 -- rides
 drop policy if exists "rides_select_authenticated" on public.rides;
@@ -187,6 +205,33 @@ create policy "promotions_select_authenticated"
   on public.promotions for select
   to authenticated
   using (active = true);
+
+-- saved_locations
+-- Users own and manage their own pinned addresses end-to-end.
+drop policy if exists "saved_locations_select_own" on public.saved_locations;
+create policy "saved_locations_select_own"
+  on public.saved_locations for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+drop policy if exists "saved_locations_insert_own" on public.saved_locations;
+create policy "saved_locations_insert_own"
+  on public.saved_locations for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists "saved_locations_update_own" on public.saved_locations;
+create policy "saved_locations_update_own"
+  on public.saved_locations for update
+  to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "saved_locations_delete_own" on public.saved_locations;
+create policy "saved_locations_delete_own"
+  on public.saved_locations for delete
+  to authenticated
+  using (auth.uid() = user_id);
 
 -- driver_profiles
 -- A driver can read and write their own row. Status changes (approve/reject)
