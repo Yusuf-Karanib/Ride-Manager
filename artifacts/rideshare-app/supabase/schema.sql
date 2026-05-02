@@ -42,6 +42,19 @@ create table if not exists public.banned_devices (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.promotions (
+  code            text primary key,
+  description     text,
+  discount_amount integer not null check (discount_amount > 0),
+  min_offer       integer not null default 0 check (min_offer >= 0),
+  max_uses        integer,
+  uses_count      integer not null default 0,
+  active          boolean not null default true,
+  valid_from      timestamptz,
+  valid_to        timestamptz,
+  created_at      timestamptz not null default now()
+);
+
 create table if not exists public.scheduled_rides (
   id            uuid primary key default gen_random_uuid(),
   rider_id      uuid not null references auth.users(id) on delete cascade,
@@ -65,6 +78,7 @@ create index if not exists reports_ride_id_idx  on public.reports(ride_id);
 create index if not exists scheduled_rides_status_idx on public.scheduled_rides(status);
 create index if not exists scheduled_rides_scheduled_at_idx on public.scheduled_rides(scheduled_at);
 create index if not exists scheduled_rides_rider_id_idx on public.scheduled_rides(rider_id);
+create index if not exists promotions_active_idx on public.promotions(active);
 
 -- Row Level Security --------------------------------------------------------
 alter table public.rides           enable row level security;
@@ -72,6 +86,7 @@ alter table public.bids            enable row level security;
 alter table public.reports         enable row level security;
 alter table public.banned_devices  enable row level security;
 alter table public.scheduled_rides enable row level security;
+alter table public.promotions      enable row level security;
 
 -- rides
 drop policy if exists "rides_select_authenticated" on public.rides;
@@ -143,6 +158,15 @@ create policy "scheduled_rides_update_own"
   on public.scheduled_rides for update
   to authenticated
   using (auth.uid() = rider_id);
+
+-- promotions
+-- Read-only to all authenticated users so the rider app can validate codes.
+-- Inserts/updates must be done via the service-role key (admin tooling only).
+drop policy if exists "promotions_select_authenticated" on public.promotions;
+create policy "promotions_select_authenticated"
+  on public.promotions for select
+  to authenticated
+  using (active = true);
 
 -- ---------------------------------------------------------------------------
 -- OPTIONAL: server-side promotion of scheduled rides 30 minutes before time.

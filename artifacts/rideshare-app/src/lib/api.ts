@@ -188,6 +188,89 @@ export async function fetchUpcomingScheduledRides(
   return (data ?? []) as ScheduledRide[];
 }
 
+export interface Promotion {
+  code: string;
+  description: string | null;
+  discount_amount: number;
+  min_offer: number;
+  max_uses: number | null;
+  uses_count: number;
+  active: boolean;
+  valid_from: string | null;
+  valid_to: string | null;
+}
+
+export type PromoValidation =
+  | {
+      valid: true;
+      promotion: Promotion;
+      discountAmount: number;
+      adjustedOffer: number;
+    }
+  | { valid: false; reason: string };
+
+/**
+ * Look up a promo code and check it against the rider's current base offer.
+ *
+ * Note (cash-only architecture): the discount is applied to the rider's
+ * *initial offer* — drivers may still counter. There is no platform
+ * reimbursement mechanism, so this is a starting-price nudge, not a
+ * guaranteed price cut. See PromoCode.tsx for the UI disclosure.
+ */
+export async function validatePromoCode(
+  rawCode: string,
+  baseOffer: number,
+): Promise<PromoValidation> {
+  const code = rawCode.trim().toUpperCase();
+  if (!code) return { valid: false, reason: "Enter a code." };
+  if (!Number.isFinite(baseOffer) || baseOffer <= 0)
+    return { valid: false, reason: "Enter your offer first." };
+
+  const { data, error } = await supabase
+    .from("promotions")
+    .select("*")
+    .eq("code", code)
+    .maybeSingle();
+
+  if (error) return { valid: false, reason: error.message };
+  if (!data) return { valid: false, reason: "Code not found." };
+
+  const promo = data as Promotion;
+
+  if (!promo.active)
+    return { valid: false, reason: "This code is no longer active." };
+
+  const now = Date.now();
+  if (promo.valid_from && new Date(promo.valid_from).getTime() > now)
+    return { valid: false, reason: "This code isn't active yet." };
+  if (promo.valid_to && new Date(promo.valid_to).getTime() < now)
+    return { valid: false, reason: "This code has expired." };
+
+  if (
+    typeof promo.max_uses === "number" &&
+    promo.uses_count >= promo.max_uses
+  )
+    return { valid: false, reason: "This code has been fully redeemed." };
+
+  if (baseOffer < promo.min_offer)
+    return {
+      valid: false,
+      reason: `Minimum offer for this code is ${promo.min_offer.toLocaleString("en-US")} SYP.`,
+    };
+
+  // Don't let the discount drive the offer to zero or negative.
+  const discountAmount = Math.min(promo.discount_amount, baseOffer - 500);
+  if (discountAmount <= 0)
+    return { valid: false, reason: "Offer is too low for this code." };
+
+  return {
+    valid: true,
+    promotion: promo,
+    discountAmount,
+    adjustedOffer: baseOffer - discountAmount,
+  };
+}
+
 export async function createReport(input: NewReportInput): Promise<Report> {
   const { data, error } = await supabase
     .from("reports")
