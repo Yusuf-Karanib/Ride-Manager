@@ -43,7 +43,7 @@ function AppContent() {
   }, []);
 
   if (isBanned) {
-    return <BannedScreen deviceId={deviceId} />;
+    return <BannedScreen />;
   }
 
   const handleAuthenticated = (userEmail: string) => {
@@ -102,7 +102,7 @@ function AppContent() {
   return (
     <Switch>
       <Route path="/banned">
-        <BannedScreen deviceId={deviceId} />
+        <BannedScreen />
       </Route>
       <Route path="/auth">
         <AuthScreen onAuthenticated={handleAuthenticated} deviceId={deviceId} />
