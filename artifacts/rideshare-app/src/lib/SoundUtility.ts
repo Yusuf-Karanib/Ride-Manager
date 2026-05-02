@@ -3,6 +3,30 @@ type AudioContextCtor = typeof AudioContext;
 let ctx: AudioContext | null = null;
 let unlocked = false;
 
+const SOUND_ENABLED_KEY = "sound_enabled";
+let soundEnabled: boolean = (() => {
+  if (typeof window === "undefined") return true;
+  try {
+    const v = localStorage.getItem(SOUND_ENABLED_KEY);
+    return v === null ? true : v === "true";
+  } catch {
+    return true;
+  }
+})();
+
+export function isSoundEnabled(): boolean {
+  return soundEnabled;
+}
+
+export function setSoundEnabled(enabled: boolean): void {
+  soundEnabled = enabled;
+  try {
+    localStorage.setItem(SOUND_ENABLED_KEY, enabled ? "true" : "false");
+  } catch {
+    // ignore
+  }
+}
+
 function getCtx(): AudioContext | null {
   if (typeof window === "undefined") return null;
   if (ctx) return ctx;
@@ -49,6 +73,7 @@ interface ToneSpec {
 }
 
 function playTones(tones: ToneSpec[]): void {
+  if (!soundEnabled) return;
   const c = getCtx();
   if (!c) return;
   if (c.state === "suspended") {
