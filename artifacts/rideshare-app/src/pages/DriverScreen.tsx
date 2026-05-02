@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 interface DriverScreenProps {
+  onAcceptedBid: (priceSyp: number) => void;
   onSignOut: () => void;
 }
 
@@ -24,7 +25,7 @@ const MOCK_REQUESTS: RideRequest[] = [
 
 const formatPrice = (n: number) => new Intl.NumberFormat("en-US").format(n) + " SYP";
 
-export default function DriverScreen({ onSignOut }: DriverScreenProps) {
+export default function DriverScreen({ onAcceptedBid, onSignOut }: DriverScreenProps) {
   const [bids, setBids] = useState<Record<string, string>>({});
   const [sent, setSent] = useState<Set<string>>(new Set());
 
@@ -34,6 +35,10 @@ export default function DriverScreen({ onSignOut }: DriverScreenProps) {
 
   const handleSendBid = (id: string) => {
     setSent((prev) => new Set(prev).add(id));
+    const value = Number(bids[id]);
+    if (!Number.isNaN(value) && value > 0) {
+      onAcceptedBid(value);
+    }
   };
 
   return (

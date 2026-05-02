@@ -35,6 +35,7 @@ function AppContent() {
   const [email, setEmail] = useState<string>("");
   const [role, setRole] = useState<Role>(null);
   const [screen, setScreen] = useState<Screen>("auth");
+  const [agreedPriceSyp, setAgreedPriceSyp] = useState<number>(0);
 
   useEffect(() => {
     const id = generateDeviceId();
@@ -58,17 +59,25 @@ function AppContent() {
     setScreen(selectedRole);
   };
 
-  const handleRequestRide = () => {
+  const handleRequestRide = (price: number) => {
+    setAgreedPriceSyp(price);
+    setScreen("active-ride");
+  };
+
+  const handleAcceptedBid = (price: number) => {
+    setAgreedPriceSyp(price);
     setScreen("active-ride");
   };
 
   const handleEndRide = () => {
+    setAgreedPriceSyp(0);
     setScreen(role === "rider" ? "rider" : "driver");
   };
 
   const handleSignOut = () => {
     setRole(null);
     setEmail("");
+    setAgreedPriceSyp(0);
     setScreen("auth");
   };
 
@@ -89,10 +98,16 @@ function AppContent() {
       return <RiderScreen onRequestRide={handleRequestRide} onSignOut={handleSignOut} />;
     }
     if (screen === "driver") {
-      return <DriverScreen onSignOut={handleSignOut} />;
+      return <DriverScreen onAcceptedBid={handleAcceptedBid} onSignOut={handleSignOut} />;
     }
     if (screen === "active-ride") {
-      return <ActiveRideScreen role={role} onEndRide={handleEndRide} />;
+      return (
+        <ActiveRideScreen
+          agreedPriceSyp={agreedPriceSyp}
+          onReportProblem={handleEndRide}
+          onCompleteTrip={handleEndRide}
+        />
+      );
     }
     return null;
   };
@@ -114,14 +129,18 @@ function AppContent() {
       </Route>
       <Route path="/driver">
         {role === "driver" ? (
-          <DriverScreen onSignOut={handleSignOut} />
+          <DriverScreen onAcceptedBid={handleAcceptedBid} onSignOut={handleSignOut} />
         ) : (
           <Redirect to="/" />
         )}
       </Route>
       <Route path="/active-ride">
         {screen === "active-ride" ? (
-          <ActiveRideScreen role={role} onEndRide={handleEndRide} />
+          <ActiveRideScreen
+            agreedPriceSyp={agreedPriceSyp}
+            onReportProblem={handleEndRide}
+            onCompleteTrip={handleEndRide}
+          />
         ) : (
           <Redirect to="/" />
         )}
