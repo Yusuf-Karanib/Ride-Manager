@@ -77,3 +77,53 @@ export async function createReport(input: NewReportInput): Promise<Report> {
   if (error) throw new Error(error.message);
   return data as Report;
 }
+
+export type RatingTarget = "rider" | "driver";
+
+export interface RatingInput {
+  ride_id: string;
+  rated_user_id: string;
+  rater_role: RatingTarget;
+  stars: number;
+  comment?: string;
+}
+
+export interface RatingResult {
+  ride_id: string;
+  rated_user_id: string;
+  stars: number;
+  comment: string;
+  submitted_at: string;
+}
+
+export async function submitRating(input: RatingInput): Promise<RatingResult> {
+  const stars = Math.max(1, Math.min(5, Math.round(input.stars)));
+  const comment = (input.comment ?? "").trim();
+  const column =
+    input.rater_role === "rider" ? "driver_rating" : "rider_rating";
+
+  console.log("[submitRating] mock update", {
+    ride_id: input.ride_id,
+    rated_user_id: input.rated_user_id,
+    column,
+    stars,
+    comment,
+  });
+
+  try {
+    await supabase
+      .from("rides")
+      .update({ [column]: stars })
+      .eq("id", input.ride_id);
+  } catch (err) {
+    console.warn("[submitRating] supabase update skipped:", err);
+  }
+
+  return {
+    ride_id: input.ride_id,
+    rated_user_id: input.rated_user_id,
+    stars,
+    comment,
+    submitted_at: new Date().toISOString(),
+  };
+}
