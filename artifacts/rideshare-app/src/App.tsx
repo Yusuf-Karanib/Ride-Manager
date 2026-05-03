@@ -11,6 +11,7 @@ import ActiveRideScreen from "@/pages/ActiveRideScreen";
 import BannedScreen from "@/pages/BannedScreen";
 import ServicesHub, { type ServiceId } from "@/pages/ServicesHub";
 import RequestForm from "@/pages/RequestForm";
+import DeliveryDetails from "@/pages/DeliveryDetails";
 import ActivityScreen from "@/pages/ActivityScreen";
 import ProfileScreen from "@/pages/ProfileScreen";
 import Layout from "@/components/Layout";
@@ -171,6 +172,33 @@ function AppContent() {
       <Route path="/request">
         {() => {
           const serviceId = readServiceIdFromQuery();
+          // Package has a different schema (item description, receiver
+          // phone, fragile/high-value, separate item-value vs delivery
+          // price) — render its dedicated form. All other services share
+          // the standard RequestForm.
+          if (serviceId === "package") {
+            return (
+              <Layout>
+                <DeliveryDetails
+                  serviceLabel={SERVICE_LABELS[serviceId]}
+                  onBack={() => setLocation("/")}
+                  onSubmit={(values) => {
+                    // NOTE: persistence to `rides` is intentionally NOT
+                    // wired yet. The schema lacks a `metadata` jsonb
+                    // column AND `service_type` does not include
+                    // 'package'. Both must be migrated before
+                    // createRide() can accept this payload. Until then
+                    // the delivery price drives the local auction state
+                    // exactly like the rider flow, so the user can still
+                    // walk through the UX end-to-end.
+                    setAgreedPriceSyp(values.deliveryPriceSyp);
+                    setSelectedServiceType(serviceId);
+                    setLocation("/active-ride");
+                  }}
+                />
+              </Layout>
+            );
+          }
           return (
             <Layout>
               <RequestForm
