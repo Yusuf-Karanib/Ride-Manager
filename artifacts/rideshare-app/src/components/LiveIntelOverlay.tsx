@@ -1,349 +1,394 @@
-import { useEffect, useState } from "react";
-import { Circle, Marker, Popup } from "react-leaflet";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import L from "leaflet";
+import { Marker, Tooltip, useMap } from "react-leaflet";
 
 /* -------------------------------------------------------------------------- */
-/* Types                                                                      */
+/* Public surface                                                             */
 /* -------------------------------------------------------------------------- */
 
-export type IntelType = "demand" | "incident";
-export type IntelSeverity = "low" | "medium" | "high";
+export type IntelSeverity = "high" | "medium" | "low";
+export type IntelKind =
+  | "demand_spike"
+  | "traffic_jam"
+  | "road_closure"
+  | "weather"
+  | "event"
+  | "police_check";
 
-export interface LiveIntel {
+export interface IntelZone {
   id: string;
-  type: IntelType;
+  lat: number;
+  lng: number;
+  kind: IntelKind;
   severity: IntelSeverity;
-  /** [lat, lng] — Leaflet's order, not GeoJSON's. */
-  position: [number, number];
-  /** Meters. Only meaningful for demand zones; ignored for incidents. */
-  radius?: number;
+  /** Short headline shown in the tooltip. */
   title: string;
-  description?: string;
-  reportedAt: Date;
+  /** Optional secondary line (cause, ETA, multiplier, etc.). */
+  detail?: string;
+  /** ISO timestamp; used to compute "X min ago" in the tooltip. */
+  reportedAt?: string;
+}
+
+export interface LiveIntelOverlayHandle {
+  /** Re-fetches the mock data immediately. */
+  refresh: () => Promise<void>;
+}
+
+export interface LiveIntelOverlayProps {
+  /** Override the mock fetcher with a real source when wiring backend. */
+  fetcher?: (signal: AbortSignal) => Promise<IntelZone[]>;
+  /** Hard cap rendered zones to protect mobile FPS. Default 12. */
+  maxZones?: number;
+  /** Auto-refresh interval (ms). Default 60_000. Set 0 to disable. */
+  refreshIntervalMs?: number;
+  /** Imperative handle for parent-driven refresh. */
+  ref?: React.Ref<LiveIntelOverlayHandle>;
 }
 
 /* -------------------------------------------------------------------------- */
-/* Mock data — Damascus                                                       */
+/* Severity → color (literal class strings so Tailwind's scanner picks them up) */
+/* -------------------------------------------------------------------------- */
+//
+// CRITICAL: do not refactor these into dynamic strings like `bg-${color}-600`.
+// Tailwind v4's content scanner only generates classes that appear literally
+// in source. Dynamic interpolation produces purged-away classes at runtime.
+
+const SEVERITY_STYLES: Record<
+  IntelSeverity,
+  { dot: string; ring: string; border: string; ringHex: string }
+> = {
+  high: {
+    dot: "bg-red-600",
+    ring: "bg-red-500",
+    border: "border-red-700",
+    ringHex: "#dc2626",
+  },
+  medium: {
+    dot: "bg-yellow-400",
+    ring: "bg-yellow-300",
+    border: "border-yellow-600",
+    ringHex: "#facc15",
+  },
+  low: {
+    dot: "bg-blue-500",
+    ring: "bg-blue-400",
+    border: "border-blue-700",
+    ringHex: "#3b82f6",
+  },
+};
+
+const KIND_LABELS: Record<IntelKind, string> = {
+  demand_spike: "Demand Spike",
+  traffic_jam: "Traffic Jam",
+  road_closure: "Road Closure",
+  weather: "Weather",
+  event: "Event",
+  police_check: "Checkpoint",
+};
+
+/* -------------------------------------------------------------------------- */
+/* Mock fetcher                                                               */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Curated mock array. Replace with a Supabase query (or paid traffic API
- * polling) when real data is available; the consumer-facing prop shape
- * doesn't need to change.
- */
-export const mockLiveIntel: LiveIntel[] = [
+const MOCK_ZONES: IntelZone[] = [
   {
-    id: "demand-old-city",
-    type: "demand",
+    id: "zi_1",
+    lat: 33.5138,
+    lng: 36.2765,
+    kind: "demand_spike",
     severity: "high",
-    position: [33.5117, 36.3065],
-    radius: 600,
-    title: "Surge — Old City",
-    description: "Souq Al-Hamidiyah is busy. Expect higher offers.",
-    reportedAt: new Date(),
+    title: "High demand · Old City",
+    detail: "Surge x1.6 expected next 20 min",
+    reportedAt: new Date(Date.now() - 4 * 60_000).toISOString(),
   },
   {
-    id: "demand-mezzeh",
-    type: "demand",
+    id: "zi_2",
+    lat: 33.5197,
+    lng: 36.2599,
+    kind: "traffic_jam",
     severity: "medium",
-    position: [33.5028, 36.2331],
-    radius: 800,
-    title: "Surge — Mezzeh",
-    description: "Office hours pickup demand.",
-    reportedAt: new Date(),
+    title: "Traffic on Mezzeh Highway",
+    detail: "Slow eastbound, ~12 min delay",
+    reportedAt: new Date(Date.now() - 11 * 60_000).toISOString(),
   },
   {
-    id: "demand-uni",
-    type: "demand",
+    id: "zi_3",
+    lat: 33.5024,
+    lng: 36.2901,
+    kind: "road_closure",
     severity: "high",
-    position: [33.5052, 36.2719],
-    radius: 500,
-    title: "Surge — University",
-    description: "Class change in 20 min.",
-    reportedAt: new Date(),
+    title: "Road closed · Bab Touma area",
+    detail: "Avoid east approach",
+    reportedAt: new Date(Date.now() - 28 * 60_000).toISOString(),
   },
   {
-    id: "incident-marjeh",
-    type: "incident",
-    severity: "high",
-    position: [33.5145, 36.3015],
-    title: "Road Closed — Sahat Al-Marjeh",
-    description: "Police checkpoint, expect 15 min delays.",
-    reportedAt: new Date(),
-  },
-  {
-    id: "incident-airport-rd",
-    type: "incident",
+    id: "zi_4",
+    lat: 33.5093,
+    lng: 36.3036,
+    kind: "demand_spike",
     severity: "medium",
-    position: [33.4395, 36.4225],
-    title: "Heavy Traffic — Airport Rd",
-    description: "Slow-moving northbound near M5 ramp.",
-    reportedAt: new Date(),
+    title: "Rising demand · Jaramana",
+    detail: "Peak commute window",
+    reportedAt: new Date(Date.now() - 7 * 60_000).toISOString(),
   },
   {
-    id: "incident-baramkeh",
-    type: "incident",
+    id: "zi_5",
+    lat: 33.5301,
+    lng: 36.2898,
+    kind: "event",
     severity: "low",
-    position: [33.5096, 36.2851],
-    title: "Construction — Baramkeh",
-    description: "One lane closed, minor delays.",
-    reportedAt: new Date(),
+    title: "Event letting out · Tishreen Park",
+    detail: "Light pickup wave expected",
+    reportedAt: new Date(Date.now() - 18 * 60_000).toISOString(),
+  },
+  {
+    id: "zi_6",
+    lat: 33.4942,
+    lng: 36.2547,
+    kind: "police_check",
+    severity: "low",
+    title: "Checkpoint · Mezzeh entrance",
+    detail: "Moving smoothly",
+    reportedAt: new Date(Date.now() - 35 * 60_000).toISOString(),
+  },
+  {
+    id: "zi_7",
+    lat: 33.5267,
+    lng: 36.2412,
+    kind: "weather",
+    severity: "medium",
+    title: "Light rain · West Damascus",
+    detail: "Slick roads, drive cautious",
+    reportedAt: new Date(Date.now() - 22 * 60_000).toISOString(),
+  },
+  {
+    id: "zi_8",
+    lat: 33.5172,
+    lng: 36.3180,
+    kind: "traffic_jam",
+    severity: "high",
+    title: "Heavy backup · Airport Road",
+    detail: "20+ min delay",
+    reportedAt: new Date(Date.now() - 6 * 60_000).toISOString(),
   },
 ];
 
-/* -------------------------------------------------------------------------- */
-/* Mock fetch hook                                                            */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Simulates a network fetch with a 300ms delay so the loading path gets
- * exercised. Real implementation would query Supabase or a traffic API
- * here and could subscribe to realtime updates.
- */
-export function useLiveIntel(): { intel: LiveIntel[]; loading: boolean } {
-  const [intel, setIntel] = useState<LiveIntel[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    const t = window.setTimeout(() => {
-      if (cancelled) return;
-      setIntel(mockLiveIntel);
-      setLoading(false);
-    }, 300);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(t);
-    };
-  }, []);
-
-  return { intel, loading };
+async function defaultMockFetcher(
+  signal: AbortSignal,
+): Promise<IntelZone[]> {
+  // Simulate network latency. AbortSignal-aware so unmount cancels cleanly.
+  await new Promise<void>((resolve, reject) => {
+    const id = window.setTimeout(resolve, 400);
+    signal.addEventListener("abort", () => {
+      window.clearTimeout(id);
+      reject(new DOMException("Aborted", "AbortError"));
+    });
+  });
+  // Lightly randomize so successive refreshes feel "live" without changing
+  // the underlying zone identities.
+  return MOCK_ZONES.map((z) => ({
+    ...z,
+    reportedAt: z.reportedAt ?? new Date().toISOString(),
+  }));
 }
 
 /* -------------------------------------------------------------------------- */
-/* Color language                                                             */
+/* DivIcon factory — pulsing pin                                              */
 /* -------------------------------------------------------------------------- */
+//
+// We build the icon HTML by hand (rather than rendering React into a portal)
+// because Leaflet expects a stable DOM string for each marker. The animation
+// is pure CSS via Tailwind's `animate-ping` utility, which Tailwind generates
+// as long as it appears literally somewhere in source — done below.
 
-const COLORS = {
-  demand: { core: "#EAFF00", ring: "#0F172A" }, // Sulfur on midnight — surge = brand yellow
-  incidentHigh: { core: "#EF4444", ring: "#0F172A" }, // Red — urgent
-  incidentMedium: { core: "#F59E0B", ring: "#0F172A" }, // Amber — caution
-  incidentLow: { core: "#3B82F6", ring: "#0F172A" }, // Blue — info
-} as const;
+const SR_ANIMATE_PING_HINT = "animate-ping"; // keep literal so JIT picks it up
 
-function colorsFor(intel: LiveIntel): { core: string; ring: string } {
-  if (intel.type === "demand") return COLORS.demand;
-  if (intel.severity === "high") return COLORS.incidentHigh;
-  if (intel.severity === "medium") return COLORS.incidentMedium;
-  return COLORS.incidentLow;
-}
-
-/* -------------------------------------------------------------------------- */
-/* Pulse keyframes — injected once at module load                             */
-/* -------------------------------------------------------------------------- */
-
-// Leaflet's divIcon HTML lives in the map pane, outside React's component
-// tree, so scoped CSS-in-JS doesn't reach it. A single global <style> block
-// (idempotent via id check) is the cleanest way to animate divIcon HTML.
-const STYLE_ID = "live-intel-pulse-styles";
-const PULSE_CSS = `
-@keyframes live-intel-pulse {
-  0%   { transform: scale(0.6); opacity: 0.85; }
-  70%  { transform: scale(2.2); opacity: 0;    }
-  100% { transform: scale(2.2); opacity: 0;    }
-}
-.live-intel-icon {
-  position: relative;
-  display: block;
-  width: 14px;
-  height: 14px;
-}
-.live-intel-icon .core {
-  position: absolute; inset: 0;
-  border-radius: 9999px;
-  border: 2px solid var(--ring);
-  background: var(--core);
-  box-shadow: 0 0 0 1px rgba(0,0,0,0.3);
-}
-.live-intel-icon .pulse {
-  position: absolute; inset: 0;
-  border-radius: 9999px;
-  background: var(--core);
-  opacity: 0.8;
-  animation: live-intel-pulse 1.6s ease-out infinite;
-  pointer-events: none;
-}
-.live-intel-icon[data-severity="high"] .pulse   { animation-duration: 1.1s; }
-.live-intel-icon[data-severity="medium"] .pulse { animation-duration: 1.6s; }
-.live-intel-icon[data-severity="low"] .pulse    { animation-duration: 2.2s; }
-`;
-
-if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
-  const el = document.createElement("style");
-  el.id = STYLE_ID;
-  el.textContent = PULSE_CSS;
-  document.head.appendChild(el);
-}
-
-/* -------------------------------------------------------------------------- */
-/* Icon factory                                                               */
-/* -------------------------------------------------------------------------- */
-
-function buildIcon(intel: LiveIntel): L.DivIcon {
-  const { core, ring } = colorsFor(intel);
+function buildPulsingIcon(severity: IntelSeverity): L.DivIcon {
+  const s = SEVERITY_STYLES[severity];
+  // A 14×14 dot with an absolute-positioned ring overlay that uses
+  // animate-ping (scale 1→2, opacity 0.75→0). The ring is sized to match
+  // the dot at scale=1 so the visual origin stays centered on the lat/lng.
+  const html = `
+    <div class="relative" style="width:14px;height:14px;">
+      <span
+        aria-hidden="true"
+        class="absolute inset-0 rounded-full ${s.ring} opacity-60 animate-ping"
+      ></span>
+      <span
+        aria-hidden="true"
+        class="absolute inset-0 rounded-full ${s.dot} border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+      ></span>
+    </div>
+  `;
   return L.divIcon({
-    className: "", // suppress Leaflet's default `.leaflet-div-icon` border
+    html,
+    // Empty string disables Leaflet's default `.leaflet-div-icon` styles
+    // (which would add a white box around our markup).
+    className: "",
     iconSize: [14, 14],
-    iconAnchor: [7, 7],
-    popupAnchor: [0, -8],
-    html: `
-      <div class="live-intel-icon" data-severity="${intel.severity}"
-           style="--core:${core};--ring:${ring};">
-        <div class="pulse"></div>
-        <div class="core"></div>
-      </div>
-    `,
+    iconAnchor: [7, 7], // center the dot on the lat/lng coordinate
+    // Tooltip will anchor relative to this point.
+    tooltipAnchor: [0, -8],
   });
 }
 
 /* -------------------------------------------------------------------------- */
-/* Overlay                                                                    */
+/* Time helper                                                                */
 /* -------------------------------------------------------------------------- */
 
-export interface LiveIntelOverlayProps {
-  /** Override the intel set (e.g. from Supabase). Defaults to mock fetch. */
-  intel?: LiveIntel[];
-  /** Filter to a subset of types. Defaults to both. */
-  types?: IntelType[];
-  /** Whether to render the radius circle for demand zones. Default true. */
-  showRadius?: boolean;
+function relMinutes(iso?: string): string {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  const diff = Math.max(0, Math.round((Date.now() - t) / 60_000));
+  if (diff < 1) return "just now";
+  if (diff === 1) return "1 min ago";
+  if (diff < 60) return `${diff} min ago`;
+  return `${Math.round(diff / 60)} hr ago`;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Component                                                                  */
+/* -------------------------------------------------------------------------- */
 
 /**
- * Map overlay. Render as a child of <MapContainer>:
+ * Live Intel — pulsing zone markers for high-demand areas, traffic, and
+ * road conditions.
  *
- *     <MapContainer ...>
- *       <TileLayer ... />
- *       <LiveIntelOverlay />
- *     </MapContainer>
+ * MUST be rendered as a child of `<MapContainer>`:
+ *
+ *   <MapContainer center={...} zoom={13}>
+ *     <TileLayer ... />
+ *     <LiveIntelOverlay />
+ *     <Marker position={driverPos} />   // renders ON TOP of intel
+ *   </MapContainer>
+ *
+ * Pane note: react-leaflet places markers in the default `markerPane`
+ * (z-index 600), above tiles (200) and below tooltips (650). Driver/rider
+ * position markers render above intel only by source order — list this
+ * component before user markers if you want intel to sit underneath.
  */
 export default function LiveIntelOverlay({
-  intel: intelProp,
-  types,
-  showRadius = true,
+  fetcher = defaultMockFetcher,
+  maxZones = 12,
+  refreshIntervalMs = 60_000,
+  ref,
 }: LiveIntelOverlayProps) {
-  const fetched = useLiveIntel();
-  const source = intelProp ?? fetched.intel;
+  // Touching `useMap()` ensures we crash loud and early if someone forgets
+  // to wrap us in a MapContainer (instead of failing silently with no
+  // markers).
+  useMap();
 
-  const allowed = new Set(types ?? (["demand", "incident"] as IntelType[]));
-  const visible = source.filter((i) => allowed.has(i.type));
+  const [zones, setZones] = useState<IntelZone[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const load = useMemo(
+    () => async () => {
+      // Cancel any in-flight fetch before starting a new one.
+      abortRef.current?.abort();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      try {
+        const next = await fetcher(ctrl.signal);
+        if (ctrl.signal.aborted) return;
+        setZones(next.slice(0, maxZones));
+      } catch (err) {
+        if (
+          err instanceof DOMException &&
+          err.name === "AbortError"
+        ) {
+          return; // expected on unmount / refresh races
+        }
+        // Don't surface error UI — intel is supplemental. Log and keep the
+        // previous zones visible so the map doesn't go dark on a transient
+        // network blip.
+        console.warn("[LiveIntel] fetch failed:", err);
+      }
+    },
+    [fetcher, maxZones],
+  );
+
+  // Initial fetch + interval polling.
+  useEffect(() => {
+    void load();
+    if (refreshIntervalMs <= 0) return;
+    const id = window.setInterval(() => void load(), refreshIntervalMs);
+    return () => {
+      window.clearInterval(id);
+      abortRef.current?.abort();
+    };
+  }, [load, refreshIntervalMs]);
+
+  // Imperative refresh handle for parent-driven pull-to-refresh.
+  useImperativeHandle(ref, () => ({ refresh: load }), [load]);
+
+  // Build icons once per severity, not per marker — `L.divIcon` is cheap
+  // but identical instances let Leaflet skip recreating DOM on rerenders.
+  const iconCache = useMemo(
+    () => ({
+      high: buildPulsingIcon("high"),
+      medium: buildPulsingIcon("medium"),
+      low: buildPulsingIcon("low"),
+    }),
+    [],
+  );
 
   return (
     <>
-      {visible.map((i) => {
-        const colors = colorsFor(i);
+      {zones.map((z) => {
+        const styles = SEVERITY_STYLES[z.severity];
+        const kindLabel = KIND_LABELS[z.kind] ?? z.kind;
         return (
-          <IntelMarker key={i.id} intel={i} colors={colors} showRadius={showRadius} />
+          <Marker
+            key={z.id}
+            position={[z.lat, z.lng]}
+            icon={iconCache[z.severity]}
+            // Keep markers non-clickable on the map itself; tooltip handles
+            // hover/tap. Clicks would conflict with map drag on mobile.
+            interactive={true}
+            keyboard={false}
+          >
+            <Tooltip
+              direction="top"
+              offset={[0, -4]}
+              opacity={1}
+              // sticky=false → tooltip closes on mouseout / outside tap.
+              sticky={false}
+            >
+              <div
+                className={`min-w-[160px] max-w-[220px] bg-[#0F172A] text-white border-2 ${styles.border} px-2 py-1.5`}
+                style={{
+                  // Inline a hint of the severity color in the corner for
+                  // glanceable severity reading even if the user color-blind
+                  // can't distinguish the dot.
+                  borderLeftWidth: 6,
+                  borderLeftColor: styles.ringHex,
+                }}
+              >
+                <p className="text-[9px] font-bold uppercase tracking-widest text-yellow-400">
+                  Live intel · {kindLabel}
+                </p>
+                <p className="mt-0.5 text-[12px] font-bold leading-tight">
+                  {z.title}
+                </p>
+                {z.detail && (
+                  <p className="mt-0.5 text-[10px] text-white/80 leading-snug">
+                    {z.detail}
+                  </p>
+                )}
+                {z.reportedAt && (
+                  <p className="mt-1 text-[9px] text-white/50 uppercase tracking-widest">
+                    {relMinutes(z.reportedAt)}
+                  </p>
+                )}
+              </div>
+            </Tooltip>
+          </Marker>
         );
       })}
+      {/* Tailwind JIT hint — keeps animate-ping in the bundle even if no
+          other source mentions it. Hidden, zero layout cost. */}
+      <span hidden aria-hidden="true" className={SR_ANIMATE_PING_HINT} />
     </>
   );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Single-marker subcomponent                                                 */
-/* -------------------------------------------------------------------------- */
-
-function IntelMarker({
-  intel,
-  colors,
-  showRadius,
-}: {
-  intel: LiveIntel;
-  colors: { core: string; ring: string };
-  showRadius: boolean;
-}) {
-  // The icon depends on the intel id + severity; rebuild only when those
-  // change. Without memoization Leaflet re-renders the DOM node on every
-  // parent render, which kills the CSS animation by resetting the keyframe.
-  const [icon] = useState(() => buildIcon(intel));
-
-  const isDemand = intel.type === "demand";
-  const radius = intel.radius ?? 0;
-
-  return (
-    <>
-      {isDemand && showRadius && radius > 0 && (
-        <Circle
-          center={intel.position}
-          radius={radius}
-          pathOptions={{
-            color: colors.core,
-            weight: 2,
-            opacity: 0.6,
-            fillColor: colors.core,
-            fillOpacity: 0.08,
-            dashArray: "4 4",
-          }}
-        />
-      )}
-      <Marker position={intel.position} icon={icon}>
-        <Popup>
-          <IntelPopup intel={intel} />
-        </Popup>
-      </Marker>
-    </>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Popup body                                                                 */
-/* -------------------------------------------------------------------------- */
-
-function IntelPopup({ intel }: { intel: LiveIntel }) {
-  const isDemand = intel.type === "demand";
-  return (
-    <div className="min-w-[180px]">
-      <div className="flex items-center gap-2 mb-1">
-        <span
-          className={`px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest border-2 border-black ${
-            isDemand
-              ? "bg-yellow-400 text-black"
-              : intel.severity === "high"
-                ? "bg-red-600 text-white"
-                : intel.severity === "medium"
-                  ? "bg-amber-500 text-black"
-                  : "bg-blue-600 text-white"
-          }`}
-        >
-          {isDemand ? "Demand" : intel.severity}
-        </span>
-        <span className="text-[10px] text-black/50 tabular-nums">
-          {timeAgo(intel.reportedAt)}
-        </span>
-      </div>
-      <p className="text-sm font-bold text-black leading-tight">
-        {intel.title}
-      </p>
-      {intel.description && (
-        <p className="text-[11px] text-black/70 mt-1 leading-snug">
-          {intel.description}
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                    */
-/* -------------------------------------------------------------------------- */
-
-function timeAgo(d: Date): string {
-  const seconds = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 }
