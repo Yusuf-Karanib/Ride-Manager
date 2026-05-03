@@ -11,11 +11,22 @@ export interface Report {
   created_at: string;
 }
 
+/**
+ * Vehicle category the rider is requesting. Drivers filter the feed by
+ * the categories their vehicle can serve. Mirrors the schema check
+ * constraint on `rides.service_type`.
+ *
+ * 'taxi' covers the VIP tier as well — VIP is a UI-level multiplier on
+ * the offer, not a separate persistent service category.
+ */
+export type ServiceType = "bike" | "taxi" | "van";
+
 export interface NewRideInput {
   rider_id: string;
   pickup: string;
   dropoff: string;
   initial_offer: number;
+  service_type: ServiceType;
   status?: string;
 }
 

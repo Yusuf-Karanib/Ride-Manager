@@ -23,6 +23,31 @@ alter table public.rides add column if not exists is_shared boolean not null def
 -- timestamp used by the driver earnings dashboard. Populated when a ride
 -- transitions to status='completed'.
 alter table public.rides add column if not exists completed_at timestamptz;
+-- service_type categorises the vehicle the rider is asking for. Drivers
+-- filter the open feed by the service_types their vehicle can serve.
+-- The vocabulary intentionally stays small (vehicle *categories*, not
+-- service tiers) — VIP/standard/premium are tier signals layered on top
+-- in the UI, not separate persistent values.
+-- 'taxi'  → 4-wheel passenger car, including the VIP tier
+-- 'bike'  → motorcycle (fuel-efficient, traffic-proof)
+-- 'van'   → microbus / shared servis
+-- The default 'taxi' is safe for any historical rows and matches the
+-- most common vehicle category in the target market.
+alter table public.rides
+  add column if not exists service_type text not null default 'taxi';
+-- Add the check separately so re-running the script doesn't try to add a
+-- duplicate constraint name. `do $$ ... $$` no-ops cleanly on second run.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'rides_service_type_check'
+  ) then
+    alter table public.rides
+      add constraint rides_service_type_check
+      check (service_type in ('bike', 'taxi', 'van'));
+  end if;
+end $$;
 
 create table if not exists public.bids (
   id         uuid primary key default gen_random_uuid(),
@@ -169,6 +194,11 @@ create table if not exists public.scheduled_rides (
 create index if not exists rides_rider_id_idx   on public.rides(rider_id);
 create index if not exists rides_status_idx     on public.rides(status);
 create index if not exists rides_is_shared_idx  on public.rides(is_shared) where is_shared = true;
+-- Partial index tuned for the driver-feed filter:
+-- "open requests for my vehicle category". Only indexes rows the feed
+-- actually selects (status = 'open'), keeping the index narrow.
+create index if not exists rides_service_type_open_idx
+  on public.rides(service_type, created_at desc) where status = 'open';
 create index if not exists rides_completed_at_idx
   on public.rides(completed_at desc) where status = 'completed';
 create index if not exists bids_ride_id_idx     on public.bids(ride_id);
