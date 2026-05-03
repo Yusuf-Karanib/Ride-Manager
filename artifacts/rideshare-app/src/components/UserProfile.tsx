@@ -1,5 +1,13 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { useUser, type UserProfile as UserProfileData } from "@/context/UserContext";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
+import { useUser, type UserProfile as UserProfileShape } from "@/context/UserContext";
 
 /* -------------------------------------------------------------------------- */
 /* Public surface                                                             */
@@ -7,7 +15,7 @@ import { useUser, type UserProfile as UserProfileData } from "@/context/UserCont
 
 export interface UserProfileProps {
   /** Optional callback fired after a successful save. */
-  onSaved?: (profile: UserProfileData) => void;
+  onSaved?: (profile: UserProfileShape) => void;
   className?: string;
 }
 
@@ -15,333 +23,434 @@ export interface UserProfileProps {
 /* Validation                                                                 */
 /* -------------------------------------------------------------------------- */
 
-interface FormErrors {
+interface FieldErrors {
   name?: string;
   phone?: string;
   email?: string;
   avatar?: string;
 }
 
-// Syrian-friendly phone: accept "+963 9XX XXX XXX", "09XXXXXXXX", or
-// 9-12 digits with optional spaces/hyphens. Intentionally permissive —
-// strict E.164 rejects too many real-world entries.
-const PHONE_RE = /^\+?[0-9\s-]{9,16}$/;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const NAME_MIN = 2;
+const NAME_MAX = 60;
+// Lenient phone — accepts +963 9XX XXX XXX, 09XX XXX XXX, etc. Requires
+// at least 9 digits among allowed chars. Strict national-format checks
+// would lock out legitimate users entering numbers in the format their
+// SIM provider taught them.
+const PHONE_ALLOWED = /^[+()\-\s0-9]+$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function validate(values: Pick<UserProfileData, "name" | "phone" | "email">): FormErrors {
-  const errors: FormErrors = {};
-  if (!values.name.trim()) {
-    errors.name = "Name is required.";
-  } else if (values.name.trim().length < 2) {
-    errors.name = "Name is too short.";
-  }
-  if (!values.phone.trim()) {
-    errors.phone = "Phone is required.";
-  } else if (!PHONE_RE.test(values.phone.trim())) {
-    errors.phone = "Enter a valid phone number.";
-  }
-  // Email is optional. Only validate format if non-empty.
-  if (values.email.trim() && !EMAIL_RE.test(values.email.trim())) {
-    errors.email = "Enter a valid email or leave blank.";
-  }
-  return errors;
+function validate(form: { name: string; phone: string; email: string }): FieldErrors {
+  const errs: FieldErrors = {};
+
+  const name = form.name.trim();
+  if (!name) errs.name = "Name is required.";
+  else if (name.length < NAME_MIN) errs.name = `At least ${NAME_MIN} characters.`;
+  else if (name.length > NAME_MAX) errs.name = `Up to ${NAME_MAX} characters.`;
+
+  const phone = form.phone.trim();
+  if (!phone) errs.phone = "Phone is required.";
+  else if (!PHONE_ALLOWED.test(phone))
+    errs.phone = "Use digits, spaces, + or - only.";
+  else if (phone.replace(/\D/g, "").length < 9)
+    errs.phone = "Enter a complete number.";
+
+  const email = form.email.trim();
+  if (email && !EMAIL_REGEX.test(email)) errs.email = "Enter a valid email.";
+
+  return errs;
 }
 
 /* -------------------------------------------------------------------------- */
-/* Avatar resize                                                              */
+/* Image helpers                                                              */
 /* -------------------------------------------------------------------------- */
 
-const AVATAR_MAX_DIM = 512;
+const MAX_AVATAR_DIM = 256; // px on the longest edge
 const AVATAR_QUALITY = 0.85;
-const AVATAR_MAX_INPUT_BYTES = 8 * 1024 * 1024; // 8 MB raw input cap.
+const RAW_MAX_BYTES = 10 * 1024 * 1024; // 10 MB pre-downscale guard
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Couldn't decode image."));
+    img.src = src;
+  });
+}
+
+function fitWithin(w: number, h: number, max: number): { w: number; h: number } {
+  if (w <= max && h <= max) return { w, h };
+  const ratio = w > h ? max / w : max / h;
+  return { w: Math.round(w * ratio), h: Math.round(h * ratio) };
+}
 
 /**
- * Downscale + re-encode an uploaded image to a JPEG data URL bounded by
- * `AVATAR_MAX_DIM`. Without this, a 4 MB phone photo lands in localStorage
- * uncompressed-as-base64 (~5.4 MB) and triggers QuotaExceededError on the
- * very next setItem.
+ * Resize a user-selected image down to a localStorage-safe size and return
+ * a JPEG data URL. JPEG (not PNG) because PNG with alpha can balloon to
+ * many MB even at 256×256, and avatars don't need transparency.
  */
-async function fileToResizedDataUrl(file: File): Promise<string> {
-  if (file.size > AVATAR_MAX_INPUT_BYTES) {
-    throw new Error("Image is too large. Pick something under 8 MB.");
-  }
+async function downscaleAvatar(file: File): Promise<string> {
   if (!file.type.startsWith("image/")) {
-    throw new Error("Pick an image file (JPG, PNG, WEBP).");
+    throw new Error("Pick an image file.");
   }
+  if (file.size > RAW_MAX_BYTES) {
+    throw new Error("Image is too large (max 10 MB).");
+  }
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await loadImage(objectUrl);
+    const { w, h } = fitWithin(img.naturalWidth, img.naturalHeight, MAX_AVATAR_DIM);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Image processing isn't supported here.");
+    // White background avoids the canvas exporting a transparent JPEG
+    // (which becomes solid black in some renderers).
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", AVATAR_QUALITY);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
 
-  const bitmap = await createImageBitmap(file).catch(() => {
-    throw new Error("Couldn't read that image. Try a different file.");
-  });
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
 
-  const scale = Math.min(
-    1,
-    AVATAR_MAX_DIM / Math.max(bitmap.width, bitmap.height),
+function initialsFrom(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return ((parts[0]![0] ?? "") + (parts[parts.length - 1]![0] ?? ""))
+    .toUpperCase();
+}
+
+function isDirty(
+  form: { name: string; phone: string; email: string; avatarDataUrl: string | null },
+  saved: UserProfileShape,
+): boolean {
+  return (
+    form.name !== saved.name ||
+    form.phone !== saved.phone ||
+    form.email !== saved.email ||
+    form.avatarDataUrl !== saved.avatarDataUrl
   );
-  const w = Math.max(1, Math.round(bitmap.width * scale));
-  const h = Math.max(1, Math.round(bitmap.height * scale));
-
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Couldn't process image.");
-  ctx.drawImage(bitmap, 0, 0, w, h);
-  bitmap.close?.();
-  return canvas.toDataURL("image/jpeg", AVATAR_QUALITY);
 }
 
 /* -------------------------------------------------------------------------- */
 /* Component                                                                  */
 /* -------------------------------------------------------------------------- */
 
+type SaveStatus =
+  | { kind: "idle" }
+  | { kind: "saving" }
+  | { kind: "saved"; at: number }
+  | { kind: "error"; message: string };
+
 export default function UserProfile({ onSaved, className }: UserProfileProps) {
   const { profile, saveProfile } = useUser();
 
+  // Local form state — separate from context so unsaved edits don't leak
+  // out before submit. Initialized from context, re-synced when context
+  // changes from elsewhere (e.g. another tab).
   const [name, setName] = useState(profile.name);
   const [phone, setPhone] = useState(profile.phone);
   const [email, setEmail] = useState(profile.email);
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(
     profile.avatarDataUrl,
   );
-
-  const [errors, setErrors] = useState<FormErrors>({});
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [savedFlash, setSavedFlash] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
   const [avatarBusy, setAvatarBusy] = useState(false);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Re-sync local form state when the underlying context profile changes
-  // (e.g. saved on another tab and storage event lands). Only re-syncs
-  // when the user isn't actively editing — otherwise we'd clobber input.
+  // Re-sync local form when context profile changes from outside (cross-tab,
+  // logout/login). Skip while the user has unsaved edits — would be surprising
+  // to lose them mid-edit. We detect that via dirty check against the
+  // *previous* context profile snapshot.
+  const lastSyncedRef = useRef<UserProfileShape>(profile);
   useEffect(() => {
-    if (submitting) return;
+    const dirty = isDirty(
+      { name, phone, email, avatarDataUrl },
+      lastSyncedRef.current,
+    );
+    if (!dirty) {
+      setName(profile.name);
+      setPhone(profile.phone);
+      setEmail(profile.email);
+      setAvatarDataUrl(profile.avatarDataUrl);
+    }
+    lastSyncedRef.current = profile;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.name, profile.phone, profile.email, profile.avatarDataUrl]);
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const dirty = useMemo(
+    () => isDirty({ name, phone, email, avatarDataUrl }, profile),
+    [name, phone, email, avatarDataUrl, profile],
+  );
+
+  const handleAvatarPick = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      // Reset the input value so the same file can be re-picked after a
+      // failed attempt — browsers debounce identical selections otherwise.
+      e.target.value = "";
+      if (!file) return;
+      setAvatarBusy(true);
+      setErrors((prev) => ({ ...prev, avatar: undefined }));
+      try {
+        const dataUrl = await downscaleAvatar(file);
+        setAvatarDataUrl(dataUrl);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Couldn't load that image.";
+        setErrors((prev) => ({ ...prev, avatar: message }));
+      } finally {
+        setAvatarBusy(false);
+      }
+    },
+    [],
+  );
+
+  const handleRemoveAvatar = useCallback(() => {
+    setAvatarDataUrl(null);
+    setErrors((prev) => ({ ...prev, avatar: undefined }));
+  }, []);
+
+  const handleDiscard = useCallback(() => {
     setName(profile.name);
     setPhone(profile.phone);
     setEmail(profile.email);
     setAvatarDataUrl(profile.avatarDataUrl);
-  }, [profile, submitting]);
+    setErrors({});
+    setStatus({ kind: "idle" });
+  }, [profile]);
 
-  // Auto-dismiss the success flash so it doesn't stick around forever.
+  const handleSubmit = useCallback(
+    async (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      const fieldErrors = validate({ name, phone, email });
+      setErrors((prev) => ({ ...prev, ...fieldErrors }));
+      if (Object.keys(fieldErrors).length > 0) {
+        setStatus({
+          kind: "error",
+          message: "Fix the highlighted fields and try again.",
+        });
+        return;
+      }
+      setStatus({ kind: "saving" });
+      try {
+        const next = await saveProfile({
+          name: name.trim(),
+          phone: phone.trim(),
+          email: email.trim(),
+          avatarDataUrl,
+        });
+        setStatus({ kind: "saved", at: Date.now() });
+        onSaved?.(next);
+      } catch (err) {
+        setStatus({
+          kind: "error",
+          message:
+            err instanceof Error
+              ? err.message
+              : "Couldn't save your profile. Try again.",
+        });
+      }
+    },
+    [name, phone, email, avatarDataUrl, saveProfile, onSaved],
+  );
+
+  // Auto-clear the "Saved" toast after 3 seconds so it doesn't camp.
   useEffect(() => {
-    if (!savedFlash) return;
-    const t = window.setTimeout(() => setSavedFlash(false), 2500);
-    return () => window.clearTimeout(t);
-  }, [savedFlash]);
+    if (status.kind !== "saved") return;
+    const id = window.setTimeout(() => setStatus({ kind: "idle" }), 3000);
+    return () => window.clearTimeout(id);
+  }, [status]);
 
-  const dirty =
-    name !== profile.name ||
-    phone !== profile.phone ||
-    email !== profile.email ||
-    avatarDataUrl !== profile.avatarDataUrl;
-
-  const handleAvatarChange = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    // Reset the input value so picking the SAME file twice still fires onChange.
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    if (!file) return;
-
-    setAvatarBusy(true);
-    setErrors((prev) => ({ ...prev, avatar: undefined }));
-    try {
-      const dataUrl = await fileToResizedDataUrl(file);
-      setAvatarDataUrl(dataUrl);
-    } catch (err) {
-      setErrors((prev) => ({
-        ...prev,
-        avatar:
-          err instanceof Error ? err.message : "Couldn't process that image.",
-      }));
-    } finally {
-      setAvatarBusy(false);
-    }
-  };
-
-  const handleRemoveAvatar = () => {
-    setAvatarDataUrl(null);
-    setErrors((prev) => ({ ...prev, avatar: undefined }));
-  };
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (submitting) return;
-
-    const fieldErrors = validate({ name, phone, email });
-    setErrors((prev) => ({ ...fieldErrors, avatar: prev.avatar }));
-    if (Object.keys(fieldErrors).length > 0) return;
-
-    setSubmitting(true);
-    setSubmitError(null);
-    try {
-      const next = await saveProfile({
-        name: name.trim(),
-        phone: phone.trim(),
-        email: email.trim(),
-        avatarDataUrl,
-      });
-      setSavedFlash(true);
-      onSaved?.(next);
-    } catch (err) {
-      setSubmitError(
-        err instanceof Error ? err.message : "Couldn't save your profile.",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const initials = getInitials(name || profile.name);
+  const saving = status.kind === "saving";
+  const canSubmit = dirty && !saving && !avatarBusy;
 
   return (
     <section
-      className={`bg-white border-2 border-black p-4 ${className ?? ""}`}
-      aria-label="Profile"
+      className={`bg-white border-2 border-black overflow-hidden ${className ?? ""}`}
+      aria-label="Profile settings"
     >
-      <header className="mb-4">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-black/60">
-          Account
+      {/* Header */}
+      <header className="bg-black text-white px-4 py-3 border-b-2 border-black">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-yellow-400">
+          FAST24
         </p>
-        <h2 className="text-xl font-bold uppercase tracking-wider">
+        <h2 className="text-2xl font-bold uppercase tracking-wider mt-0.5">
           Your Profile
         </h2>
+        {profile.updatedAt && (
+          <p className="text-[11px] text-white/60 mt-0.5">
+            Last updated {new Date(profile.updatedAt).toLocaleString()}
+          </p>
+        )}
       </header>
 
       <form onSubmit={handleSubmit} noValidate>
-        {/* Avatar block */}
-        <div className="flex items-center gap-4 mb-5">
-          <div
-            className="relative w-20 h-20 rounded-full border-2 border-black bg-yellow-400 overflow-hidden flex items-center justify-center shrink-0"
-            aria-hidden="true"
-          >
-            {avatarDataUrl ? (
-              <img
-                src={avatarDataUrl}
-                alt=""
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span className="text-xl font-bold text-black tracking-wider">
-                {initials || "??"}
-              </span>
-            )}
-            {avatarBusy && (
-              <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                <span className="text-[9px] font-bold uppercase tracking-widest text-yellow-400">
-                  …
+        {/* Avatar */}
+        <div className="px-4 py-4 border-b-2 border-black flex items-center gap-4">
+          <div className="relative">
+            <div
+              className={`w-20 h-20 rounded-full border-2 border-black overflow-hidden flex items-center justify-center ${
+                avatarDataUrl ? "" : "bg-[#0F172A] text-yellow-400"
+              }`}
+              aria-label={
+                avatarDataUrl
+                  ? `Avatar preview for ${name || "you"}`
+                  : "No avatar set"
+              }
+            >
+              {avatarDataUrl ? (
+                <img
+                  src={avatarDataUrl}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  draggable={false}
+                />
+              ) : (
+                <span className="text-2xl font-bold tracking-widest tabular-nums">
+                  {initialsFrom(name)}
                 </span>
-              </div>
+              )}
+            </div>
+            {avatarBusy && (
+              <span
+                aria-hidden="true"
+                className="absolute inset-0 rounded-full bg-black/60 flex items-center justify-center text-yellow-400 text-[9px] font-bold uppercase tracking-widest"
+              >
+                Resizing
+              </span>
             )}
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label className="inline-flex items-center justify-center px-3 py-1.5 border-2 border-black bg-black text-yellow-400 text-[11px] font-bold uppercase tracking-widest cursor-pointer hover:bg-yellow-400 hover:text-black">
-              Upload picture
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-black/60">
+              Avatar
+            </p>
+            <div className="mt-1 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={avatarBusy}
+                className="px-3 py-1.5 border-2 border-black bg-yellow-400 text-black text-[10px] font-bold uppercase tracking-widest hover:bg-black hover:text-yellow-400 active:translate-y-[1px] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Upload Picture
+              </button>
+              {avatarDataUrl && (
+                <button
+                  type="button"
+                  onClick={handleRemoveAvatar}
+                  disabled={avatarBusy}
+                  className="px-3 py-1.5 border-2 border-black bg-white text-black text-[10px] font-bold uppercase tracking-widest hover:bg-red-600 hover:text-white active:translate-y-[1px] disabled:opacity-50"
+                >
+                  Remove
+                </button>
+              )}
               <input
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                onChange={handleAvatarChange}
-                disabled={avatarBusy || submitting}
-                className="sr-only"
+                onChange={handleAvatarPick}
+                className="hidden"
               />
-            </label>
-            {avatarDataUrl && (
-              <button
-                type="button"
-                onClick={handleRemoveAvatar}
-                disabled={submitting}
-                className="text-[10px] font-bold uppercase tracking-widest text-black/60 hover:text-red-600 disabled:opacity-40"
-              >
-                Remove
-              </button>
+            </div>
+            {errors.avatar && (
+              <p className="mt-1 text-[10px] text-red-600 font-bold">
+                {errors.avatar}
+              </p>
+            )}
+            {!errors.avatar && (
+              <p className="mt-1 text-[10px] text-black/40">
+                Image is resized to {MAX_AVATAR_DIM}×{MAX_AVATAR_DIM} on this
+                device.
+              </p>
             )}
           </div>
         </div>
 
-        {errors.avatar && (
-          <p
-            role="alert"
-            className="mb-3 border-2 border-black bg-red-600 text-white text-[11px] font-bold uppercase tracking-wider px-2 py-1"
+        {/* Form fields */}
+        <div className="px-4 py-4 space-y-4">
+          <Field
+            id="profile-name"
+            label="Name"
+            required
+            value={name}
+            onChange={setName}
+            placeholder="Your full name"
+            autoComplete="name"
+            error={errors.name}
+            maxLength={NAME_MAX}
+          />
+          <Field
+            id="profile-phone"
+            label="Phone Number"
+            required
+            value={phone}
+            onChange={setPhone}
+            placeholder="+963 9XX XXX XXX"
+            autoComplete="tel"
+            inputMode="tel"
+            type="tel"
+            error={errors.phone}
+          />
+          <Field
+            id="profile-email"
+            label="Email"
+            value={email}
+            onChange={setEmail}
+            placeholder="optional"
+            autoComplete="email"
+            inputMode="email"
+            type="email"
+            error={errors.email}
+          />
+        </div>
+
+        {/* Status */}
+        {status.kind !== "idle" && (
+          <div
+            role={status.kind === "error" ? "alert" : "status"}
+            aria-live="polite"
+            className={`mx-4 mb-3 border-2 border-black px-3 py-2 text-[11px] font-bold uppercase tracking-widest ${
+              status.kind === "error"
+                ? "bg-red-600 text-white"
+                : status.kind === "saved"
+                  ? "bg-green-600 text-white"
+                  : "bg-yellow-400 text-black"
+            }`}
           >
-            {errors.avatar}
-          </p>
+            {status.kind === "saving" && "Saving…"}
+            {status.kind === "saved" && "Profile saved"}
+            {status.kind === "error" && status.message}
+          </div>
         )}
 
-        {/* Name */}
-        <Field
-          id="profile-name"
-          label="Name"
-          required
-          error={errors.name}
-          value={name}
-          onChange={setName}
-          autoComplete="name"
-          maxLength={80}
-        />
-
-        {/* Phone */}
-        <Field
-          id="profile-phone"
-          label="Phone"
-          required
-          error={errors.phone}
-          value={phone}
-          onChange={setPhone}
-          type="tel"
-          autoComplete="tel"
-          inputMode="tel"
-          placeholder="+963 9XX XXX XXX"
-          maxLength={20}
-        />
-
-        {/* Email */}
-        <Field
-          id="profile-email"
-          label="Email"
-          error={errors.email}
-          value={email}
-          onChange={setEmail}
-          type="email"
-          autoComplete="email"
-          inputMode="email"
-          placeholder="you@example.com"
-          maxLength={120}
-          hint="Optional — used for receipts."
-        />
-
-        {/* Submit-level error / success */}
-        {submitError && (
-          <p
-            role="alert"
-            className="mt-3 border-2 border-black bg-red-600 text-white text-[11px] font-bold uppercase tracking-wider px-2 py-1"
-          >
-            {submitError}
-          </p>
-        )}
-        {savedFlash && !submitError && (
-          <p
-            role="status"
-            className="mt-3 border-2 border-black bg-green-600 text-white text-[11px] font-bold uppercase tracking-wider px-2 py-1"
-          >
-            Saved
-          </p>
-        )}
-
-        {/* Submit */}
-        <div className="mt-4 flex items-center justify-between gap-2">
-          <p className="text-[10px] text-black/50 tabular-nums">
-            {profile.updatedAt
-              ? `Last saved ${formatDate(profile.updatedAt)}`
-              : "Not saved yet"}
-          </p>
+        {/* Actions */}
+        <div className="px-4 pb-4 flex items-center gap-2">
           <button
             type="submit"
-            disabled={submitting || avatarBusy || !dirty}
-            className="px-4 py-2 border-2 border-black bg-yellow-400 text-black text-xs font-bold uppercase tracking-widest hover:bg-black hover:text-yellow-400 active:translate-y-[1px] disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={!canSubmit}
+            className="flex-1 px-4 py-3 border-2 border-black bg-yellow-400 text-black text-sm font-bold uppercase tracking-widest hover:bg-black hover:text-yellow-400 active:translate-y-[1px] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-yellow-400 disabled:hover:text-black"
           >
-            {submitting ? "Saving…" : "Save changes"}
+            {saving ? "Saving…" : "Save Profile"}
           </button>
+          {dirty && !saving && (
+            <button
+              type="button"
+              onClick={handleDiscard}
+              className="px-4 py-3 border-2 border-black bg-white text-black text-sm font-bold uppercase tracking-widest hover:bg-red-600 hover:text-white active:translate-y-[1px]"
+            >
+              Discard
+            </button>
+          )}
         </div>
       </form>
     </section>
@@ -349,21 +458,20 @@ export default function UserProfile({ onSaved, className }: UserProfileProps) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Field — small reusable input                                               */
+/* Field                                                                      */
 /* -------------------------------------------------------------------------- */
 
 interface FieldProps {
   id: string;
   label: string;
   value: string;
-  onChange: (v: string) => void;
-  required?: boolean;
-  error?: string;
-  hint?: string;
-  type?: "text" | "tel" | "email";
-  autoComplete?: string;
-  inputMode?: "tel" | "email" | "text";
+  onChange: (value: string) => void;
   placeholder?: string;
+  required?: boolean;
+  autoComplete?: string;
+  inputMode?: "text" | "tel" | "email" | "numeric" | "decimal" | "search" | "url" | "none";
+  type?: "text" | "tel" | "email";
+  error?: string;
   maxLength?: number;
 }
 
@@ -372,86 +480,45 @@ function Field({
   label,
   value,
   onChange,
+  placeholder,
   required,
-  error,
-  hint,
-  type = "text",
   autoComplete,
   inputMode,
-  placeholder,
+  type = "text",
+  error,
   maxLength,
 }: FieldProps) {
-  const errorId = `${id}-error`;
-  const hintId = `${id}-hint`;
-  const describedBy = [error ? errorId : null, hint ? hintId : null]
-    .filter(Boolean)
-    .join(" ") || undefined;
-
+  const errId = `${id}-err`;
   return (
-    <div className="mb-3">
+    <div>
       <label
         htmlFor={id}
         className="block text-[10px] font-bold uppercase tracking-widest text-black/60 mb-1"
       >
         {label}
-        {required && <span className="text-red-600 ml-1">*</span>}
+        {required && <span className="text-red-600 ml-0.5">*</span>}
       </label>
       <input
         id={id}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
         autoComplete={autoComplete}
         inputMode={inputMode}
-        placeholder={placeholder}
         maxLength={maxLength}
-        aria-invalid={Boolean(error)}
-        aria-describedby={describedBy}
-        className={`
-          block w-full px-3 py-2 border-2 bg-white text-black text-sm
-          focus:outline-none focus:ring-0 focus:border-yellow-400
-          ${error ? "border-red-600" : "border-black"}
-        `}
+        required={required}
+        aria-invalid={!!error}
+        aria-describedby={error ? errId : undefined}
+        className={`w-full px-3 py-2 border-2 ${
+          error ? "border-red-600" : "border-black"
+        } bg-white text-black text-sm placeholder:text-black/30 focus:outline-none focus:ring-2 focus:ring-yellow-400`}
       />
-      {hint && !error && (
-        <p id={hintId} className="mt-1 text-[10px] text-black/50">
-          {hint}
-        </p>
-      )}
       {error && (
-        <p
-          id={errorId}
-          role="alert"
-          className="mt-1 text-[10px] font-bold uppercase tracking-widest text-red-600"
-        >
+        <p id={errId} className="mt-1 text-[10px] text-red-600 font-bold">
           {error}
         </p>
       )}
     </div>
   );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                    */
-/* -------------------------------------------------------------------------- */
-
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function formatDate(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
 }
