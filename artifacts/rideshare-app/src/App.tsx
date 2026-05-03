@@ -34,7 +34,11 @@ function AppContent() {
   const [isBanned, setIsBanned] = useState<boolean>(false);
   const [email, setEmail] = useState<string>("");
   const [role, setRole] = useState<Role>(null);
-  const [screen, setScreen] = useState<Screen>("auth");
+  // Public-by-default: unauthenticated users land on the rider experience
+  // at `/`. AuthScreen is still reachable explicitly via `/auth` and is
+  // entered from RoleSelectScreen for users who want to drive.
+  // Driver/active-ride routes remain gated by the inline role checks below.
+  const [screen, setScreen] = useState<Screen>("rider");
   const [agreedPriceSyp, setAgreedPriceSyp] = useState<number>(0);
 
   useEffect(() => {
