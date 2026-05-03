@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Car, Bike, Bus, CarTaxiFront } from "lucide-react";
 import LanguageToggle from "@/components/LanguageToggle";
 import type { ServiceType } from "@/lib/api";
@@ -54,40 +55,41 @@ export interface ServicesHubProps {
 
 interface ServiceMeta {
   id: ServiceId;
-  title: string;
-  blurb: string;
-  /** Small badge pinned to the card; null = no badge. */
-  badge: string | null;
+  /** i18n key resolved at render time; see src/i18n.ts. */
+  titleKey: string;
+  blurbKey: string;
+  /** i18n key for the corner badge; null = no badge. */
+  badgeKey: string | null;
   Icon: () => ReactNode;
 }
 
 const RIDE_SERVICES: ServiceMeta[] = [
   {
     id: "taxi",
-    title: "Standard Taxi",
-    blurb: "City rides, metered pace",
-    badge: null,
+    titleKey: "services.taxi.title",
+    blurbKey: "services.taxi.blurb",
+    badgeKey: null,
     Icon: () => <Car color="#EAFF00" size={40} strokeWidth={2} />,
   },
   {
     id: "motorcycle",
-    title: "Motorcycle",
-    blurb: "Quick, traffic-proof",
-    badge: "Saves fuel",
+    titleKey: "services.motorcycle.title",
+    blurbKey: "services.motorcycle.blurb",
+    badgeKey: "services.motorcycle.badge",
     Icon: () => <Bike color="#EAFF00" size={40} strokeWidth={2} />,
   },
   {
     id: "microbus",
-    title: "Microbus",
-    blurb: "Shared servis routes",
-    badge: "Cheapest",
+    titleKey: "services.microbus.title",
+    blurbKey: "services.microbus.blurb",
+    badgeKey: "services.microbus.badge",
     Icon: () => <Bus color="#EAFF00" size={40} strokeWidth={2} />,
   },
   {
     id: "vip",
-    title: "VIP Car",
-    blurb: "Sedan, A/C, top-rated",
-    badge: null,
+    titleKey: "services.vip.title",
+    blurbKey: "services.vip.blurb",
+    badgeKey: null,
     Icon: () => <CarTaxiFront color="#EAFF00" size={40} strokeWidth={2} />,
   },
 ];
@@ -95,9 +97,9 @@ const RIDE_SERVICES: ServiceMeta[] = [
 const DELIVERY_SERVICES: ServiceMeta[] = [
   {
     id: "package",
-    title: "Package Delivery",
-    blurb: "Send anything across town — handed driver-to-driver",
-    badge: null,
+    titleKey: "delivery.package.title",
+    blurbKey: "delivery.package.blurb",
+    badgeKey: null,
     Icon: PackageIcon,
   },
 ];
@@ -111,19 +113,20 @@ export default function ServicesHub({
   onClose,
   className,
 }: ServicesHubProps) {
+  const { t } = useTranslation();
   return (
     <main
       className={`min-h-screen w-full bg-white text-black ${className ?? ""}`}
-      aria-label="FAST24 services"
+      aria-label={t("services.ariaPage")}
     >
       {/* Header — black bar with sulfur accent, matches the rest of the app */}
       <header className="bg-black text-white px-4 py-4 border-b-2 border-black flex items-center justify-between sticky top-0 z-10">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-yellow-400">
-            FAST24
+            {t("common.brand")}
           </p>
           <h1 className="text-2xl font-bold uppercase tracking-wider mt-0.5">
-            Services
+            {t("common.servicesHeader")}
           </h1>
         </div>
         <div className="flex items-center gap-2">
@@ -132,10 +135,10 @@ export default function ServicesHub({
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close services"
+              aria-label={t("services.ariaClose")}
               className="px-3 py-1.5 border-2 border-yellow-400 bg-transparent text-yellow-400 text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-400 hover:text-black active:translate-y-[1px]"
             >
-              Close
+              {t("common.close")}
             </button>
           )}
         </div>
@@ -145,13 +148,13 @@ export default function ServicesHub({
         {/* Section: Go anywhere */}
         <Section
           eyebrow="01"
-          title="Go anywhere"
-          subtitle="Pick a vehicle that fits your trip and your budget."
+          title={t("services.sectionTitle")}
+          subtitle={t("services.section01Subtitle")}
         />
         <ul
           className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3"
           role="list"
-          aria-label="Ride services"
+          aria-label={t("services.ariaList")}
         >
           {RIDE_SERVICES.map((service) => (
             <ServiceCard
@@ -166,13 +169,13 @@ export default function ServicesHub({
         <div className="mt-8">
           <Section
             eyebrow="02"
-            title="Deliver anything"
-            subtitle="Send a package across town. The WhatsApp 'pick this up' scenario, formalised."
+            title={t("delivery.sectionTitle")}
+            subtitle={t("delivery.section02Subtitle")}
           />
           <ul
             className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3"
             role="list"
-            aria-label="Delivery services"
+            aria-label={t("delivery.ariaList")}
           >
             {DELIVERY_SERVICES.map((service) => (
               <ServiceCard
@@ -184,17 +187,16 @@ export default function ServicesHub({
             {/* Placeholder slot to telegraph future delivery types (food,
                 grocery, etc.) without faking the icons. */}
             <li className="hidden md:flex items-center justify-center border-2 border-dashed border-black/20 p-4 text-[11px] font-bold uppercase tracking-widest text-black/40 text-center">
-              More services
+              {t("delivery.placeholder.line1")}
               <br />
-              coming soon
+              {t("delivery.placeholder.line2")}
             </li>
           </ul>
         </div>
 
         {/* Footnote */}
         <p className="mt-6 text-[10px] text-black/50 leading-snug">
-          Cash-only. Zero commission. Prices are negotiated directly with
-          drivers — no surge pricing, ever.
+          {t("services.footnote")}
         </p>
       </div>
     </main>
@@ -234,7 +236,11 @@ interface ServiceCardProps {
 }
 
 function ServiceCard({ service, onSelect }: ServiceCardProps) {
-  const { id, title, blurb, badge, Icon } = service;
+  const { t } = useTranslation();
+  const { id, titleKey, blurbKey, badgeKey, Icon } = service;
+  const title = t(titleKey);
+  const blurb = t(blurbKey);
+  const badge = badgeKey ? t(badgeKey) : null;
   // Premium emblem treatment applies to the four named ride services.
   // The package card keeps its existing SVG + square frame because the
   // prompt did not specify a lucide replacement for it.
