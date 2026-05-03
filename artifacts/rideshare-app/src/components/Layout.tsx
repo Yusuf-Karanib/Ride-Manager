@@ -1,36 +1,28 @@
 import type { ReactNode } from "react";
-import { useUser } from "@/context/UserContext";
+import BottomNav from "@/components/BottomNav";
 
 interface LayoutProps {
   children: ReactNode;
+  /**
+   * If true, omit the bottom nav. Useful for screens that need full-bleed
+   * height (in-trip, auth) but still benefit from the layout shell.
+   */
+  hideNav?: boolean;
 }
 
-export default function Layout({ children }: LayoutProps) {
-  const { userType, logout } = useUser();
-
-  const label = userType ? userType.toUpperCase() : "GUEST";
-
+/**
+ * Global layout shell. Reserves `pb-16` so screen content does not slide
+ * under the fixed-position BottomNav (h-16). Screens that opt into Layout
+ * should NOT use `h-screen` themselves — they should size to content and
+ * let Layout's `min-h-screen` cover the viewport. Screens that need
+ * full-bleed pixel control (RiderScreen with map, ActiveRideScreen) stay
+ * outside Layout entirely.
+ */
+export default function Layout({ children, hideNav = false }: LayoutProps) {
   return (
-    <div className="min-h-screen w-screen flex flex-col bg-white">
-      <nav className="flex items-center justify-between border-b-2 border-black bg-white px-4 py-3">
-        <div className="flex items-baseline gap-2">
-          <span className="text-base font-bold text-black uppercase tracking-wider">
-            Rideshare
-          </span>
-          <span className="text-xs font-bold text-gray-500 uppercase tracking-[0.2em]">
-            {label}
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={logout}
-          className="px-3 py-1.5 text-sm font-bold text-black border-2 border-black hover:bg-black hover:text-white"
-        >
-          Logout
-        </button>
-      </nav>
-
-      <main className="flex-1 flex flex-col">{children}</main>
+    <div className={`min-h-screen ${hideNav ? "" : "pb-16"}`}>
+      {children}
+      {!hideNav && <BottomNav />}
     </div>
   );
 }
