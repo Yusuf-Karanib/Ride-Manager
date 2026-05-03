@@ -10,6 +10,8 @@ import DriverScreen from "@/pages/DriverScreen";
 import ActiveRideScreen from "@/pages/ActiveRideScreen";
 import BannedScreen from "@/pages/BannedScreen";
 import ServicesHub, { type ServiceId } from "@/pages/ServicesHub";
+import RequestForm from "@/pages/RequestForm";
+import Layout from "@/components/Layout";
 import { useUser } from "@/context/UserContext";
 
 const queryClient = new QueryClient();
@@ -27,15 +29,29 @@ function generateDeviceId(): string {
 }
 
 type Role = "rider" | "driver" | null;
-type Screen =
-  | "auth"
-  | "role-select"
-  | "services"
-  | "rider"
-  | "driver"
-  | "active-ride";
 
+const SERVICE_IDS = new Set<ServiceId>([
+  "taxi",
+  "motorcycle",
+  "microbus",
+  "vip",
+  "package",
+]);
 
+const SERVICE_LABELS: Record<ServiceId, string> = {
+  taxi: "Standard Taxi",
+  motorcycle: "Motorcycle",
+  microbus: "Microbus",
+  vip: "VIP Car",
+  package: "Package Delivery",
+};
+
+/** Read `?service=…` from the live URL, validate against ServiceId, fall back to "taxi". */
+function readServiceIdFromQuery(): ServiceId {
+  const raw = new URLSearchParams(window.location.search).get("service");
+  if (raw && SERVICE_IDS.has(raw as ServiceId)) return raw as ServiceId;
+  return "taxi";
+}
 
 function AppContent() {
   const [deviceId, setDeviceId] = useState<string>("");
@@ -43,21 +59,12 @@ function AppContent() {
   const [email, setEmail] = useState<string>("");
   const [role, setRole] = useState<Role>(null);
   // UserContext is the canonical auth signal that downstream screens
-  // (RiderScreen, etc.) read via useUser(). App's local `email`/`role`
-  // state still drives the screen-state machine; we mirror auth events
-  // into UserContext so consumers see a consistent userType.
+  // (RiderScreen, etc.) read via useUser().
   const { loginAsRider, loginAsDriver, logout } = useUser();
   const [, setLocation] = useLocation();
-  // Default home is the services grid. ServicesHub imports zero map code,
-  // so the Leaflet/MapPicker/RiderMap dynamic chunks (lazy-loaded by
-  // <LazyRiderMap>) stay un-fetched until the user opts into a flow that
-  // actually needs the map — i.e. the map does not load at app start.
-  // Driver/active-ride routes remain gated by the inline role checks below.
-  const [screen, setScreen] = useState<Screen>("services");
   const [agreedPriceSyp, setAgreedPriceSyp] = useState<number>(0);
-  // Captured at request time from RiderScreen's chip selection. Not yet
-  // persisted (createRide has zero callsites) — surfaces here so the
-  // future wiring has a canonical source.
+  // Captured at request time. Not yet persisted (createRide has zero
+  // callsites) — surfaces here so the future wiring has a canonical source.
   const [, setSelectedServiceType] = useState<ServiceId>("taxi");
 
   useEffect(() => {
@@ -74,103 +81,64 @@ function AppContent() {
 
   const handleAuthenticated = (userEmail: string) => {
     setEmail(userEmail);
-    setScreen("role-select");
-    // If the user reached AuthScreen via the explicit `/auth` route (e.g.
-    // bounced from RiderScreen's auth gate), push them back to `/` so the
-    // state-driven flow can render RoleSelectScreen → role → RiderScreen.
-    // Otherwise the URL stays at `/auth` and the wouter Switch keeps
-    // rendering AuthScreen regardless of state transitions.
-    setLocation("/");
+    setLocation("/role-select");
   };
 
   const handleSelectRole = (selectedRole: "rider" | "driver") => {
     setRole(selectedRole);
-    setScreen(selectedRole);
-    // Mirror into UserContext so RiderScreen/DriverScreen/etc. can read
-    // userType as the auth signal instead of prop-drilling email/role.
-    if (selectedRole === "rider") loginAsRider();
-    else loginAsDriver();
+    if (selectedRole === "rider") {
+      loginAsRider();
+      setLocation("/");
+    } else {
+      loginAsDriver();
+      setLocation("/driver");
+    }
   };
 
   const handleRequestRide = (price: number, serviceType: ServiceId) => {
     setAgreedPriceSyp(price);
-    // Stored for downstream persistence (createRide is not yet wired —
-    // when it is, convert via serviceIdToServiceType() at that callsite).
     setSelectedServiceType(serviceType);
-    setScreen("active-ride");
+    setLocation("/active-ride");
   };
 
   const handleAcceptedBid = (price: number) => {
     setAgreedPriceSyp(price);
-    setScreen("active-ride");
+    setLocation("/active-ride");
   };
 
   const handleEndRide = () => {
     setAgreedPriceSyp(0);
-    // Riders return to the services grid (the new home). Drivers still
-    // return to their feed since "services" is rider-facing.
-    setScreen(role === "rider" ? "services" : "driver");
+    setLocation(role === "driver" ? "/driver" : "/");
   };
 
   const handleSignOut = () => {
     setRole(null);
     setEmail("");
     setAgreedPriceSyp(0);
-    // Land back on the public services grid, the new home.
-    setScreen("services");
+    setLocation("/");
     logout();
-  };
-
-  const handleSelectService = (_id: string) => {
-    // Minimum-viable wiring: any service tile routes into the existing
-    // rider request flow. The selected service id is NOT yet plumbed
-    // through to RiderScreen / createRide — that's a follow-up tied to
-    // serviceIdToServiceType() in ServicesHub.
-    setScreen("rider");
-  };
-
-  const renderCurrent = () => {
-    if (screen === "auth") {
-      return <AuthScreen onAuthenticated={handleAuthenticated} deviceId={deviceId} />;
-    }
-    if (screen === "role-select") {
-      return (
-        <RoleSelectScreen
-          email={email}
-          onSelectRole={handleSelectRole}
-          onSignOut={handleSignOut}
-        />
-      );
-    }
-    if (screen === "services") {
-      return <ServicesHub onSelect={handleSelectService} />;
-    }
-    if (screen === "rider") {
-      return <RiderScreen onRequestRide={handleRequestRide} onSignOut={handleSignOut} />;
-    }
-    if (screen === "driver") {
-      return <DriverScreen onAcceptedBid={handleAcceptedBid} onSignOut={handleSignOut} />;
-    }
-    if (screen === "active-ride") {
-      return (
-        <ActiveRideScreen
-          agreedPriceSyp={agreedPriceSyp}
-          onReportProblem={handleEndRide}
-          onCompleteTrip={handleEndRide}
-        />
-      );
-    }
-    return null;
   };
 
   return (
     <Switch>
+      {/* Auth + banned — full-bleed, no nav shell */}
       <Route path="/banned">
         <BannedScreen />
       </Route>
       <Route path="/auth">
         <AuthScreen onAuthenticated={handleAuthenticated} deviceId={deviceId} />
       </Route>
+      <Route path="/role-select">
+        <RoleSelectScreen
+          email={email}
+          onSelectRole={handleSelectRole}
+          onSignOut={handleSignOut}
+        />
+      </Route>
+
+      {/* Existing full-bleed app screens. Kept outside Layout because
+          they use h-screen and contain bottom-anchored UI (submit
+          buttons, in-trip controls) that BottomNav would overlap. */}
       <Route path="/rider">
         {role === "rider" ? (
           <RiderScreen onRequestRide={handleRequestRide} onSignOut={handleSignOut} />
@@ -186,7 +154,7 @@ function AppContent() {
         )}
       </Route>
       <Route path="/active-ride">
-        {screen === "active-ride" ? (
+        {agreedPriceSyp > 0 ? (
           <ActiveRideScreen
             agreedPriceSyp={agreedPriceSyp}
             onReportProblem={handleEndRide}
@@ -196,7 +164,62 @@ function AppContent() {
           <Redirect to="/" />
         )}
       </Route>
-      <Route path="/">{renderCurrent()}</Route>
+
+      {/* New routes — wrapped in Layout for the global BottomNav. */}
+      <Route path="/request">
+        {() => {
+          const serviceId = readServiceIdFromQuery();
+          return (
+            <Layout>
+              <RequestForm
+                serviceId={serviceId}
+                serviceLabel={SERVICE_LABELS[serviceId]}
+                onBack={() => setLocation("/")}
+                onSubmit={(values) => {
+                  // NOTE: this flow skips negotiation (the auction modal
+                  // lives only in RiderScreen). For now the offer price
+                  // becomes the agreed price directly. Wire negotiation
+                  // here when the auction step is unified across flows.
+                  if (values.offerPriceSyp != null) {
+                    setAgreedPriceSyp(values.offerPriceSyp);
+                  }
+                  setSelectedServiceType(serviceId);
+                  setLocation("/active-ride");
+                }}
+              />
+            </Layout>
+          );
+        }}
+      </Route>
+      <Route path="/activity">
+        <Layout>
+          <div className="px-6 py-8" data-testid="placeholder-activity">
+            <h1 className="text-2xl font-bold uppercase tracking-wider">
+              Activity
+            </h1>
+            <p className="mt-2 text-sm text-black/60">Coming soon.</p>
+          </div>
+        </Layout>
+      </Route>
+      <Route path="/profile">
+        <Layout>
+          <div className="px-6 py-8" data-testid="placeholder-profile">
+            <h1 className="text-2xl font-bold uppercase tracking-wider">
+              Account
+            </h1>
+            <p className="mt-2 text-sm text-black/60">Coming soon.</p>
+          </div>
+        </Layout>
+      </Route>
+
+      {/* Home — ServicesHub at /. The catch-all default. */}
+      <Route path="/">
+        <Layout>
+          <ServicesHub
+            onSelect={(id) => setLocation(`/request?service=${id}`)}
+          />
+        </Layout>
+      </Route>
     </Switch>
   );
 }
