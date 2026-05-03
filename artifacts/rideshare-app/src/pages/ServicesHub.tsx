@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import { Car, Bike, Bus, CarTaxiFront } from "lucide-react";
 import type { ServiceType } from "@/lib/api";
 
 /* -------------------------------------------------------------------------- */
@@ -65,28 +66,28 @@ const RIDE_SERVICES: ServiceMeta[] = [
     title: "Standard Taxi",
     blurb: "City rides, metered pace",
     badge: null,
-    Icon: TaxiIcon,
+    Icon: () => <Car color="#EAFF00" size={40} strokeWidth={2} />,
   },
   {
     id: "motorcycle",
     title: "Motorcycle",
     blurb: "Quick, traffic-proof",
     badge: "Saves fuel",
-    Icon: MotorcycleIcon,
+    Icon: () => <Bike color="#EAFF00" size={40} strokeWidth={2} />,
   },
   {
     id: "microbus",
     title: "Microbus",
     blurb: "Shared servis routes",
     badge: "Cheapest",
-    Icon: MicrobusIcon,
+    Icon: () => <Bus color="#EAFF00" size={40} strokeWidth={2} />,
   },
   {
     id: "vip",
     title: "VIP Car",
     blurb: "Sedan, A/C, top-rated",
     badge: null,
-    Icon: VipCarIcon,
+    Icon: () => <CarTaxiFront color="#EAFF00" size={40} strokeWidth={2} />,
   },
 ];
 
@@ -230,22 +231,32 @@ interface ServiceCardProps {
 
 function ServiceCard({ service, onSelect }: ServiceCardProps) {
   const { id, title, blurb, badge, Icon } = service;
+  // Premium emblem treatment applies to the four named ride services.
+  // The package card keeps its existing SVG + square frame because the
+  // prompt did not specify a lucide replacement for it.
+  const isPremium = id !== "package";
   return (
     <li>
       <button
         type="button"
         onClick={() => onSelect?.(id)}
         aria-label={title}
-        className="group relative w-full h-full text-left border-2 border-black bg-white p-3 hover:bg-yellow-400 active:translate-y-[1px] focus:outline-none focus:bg-yellow-400 transition-colors"
+        className={`group relative w-full h-full ${isPremium ? "text-center" : "text-left"} border-2 border-black bg-white p-3 hover:bg-yellow-400 active:translate-y-[1px] focus:outline-none focus:bg-yellow-400 transition-colors`}
       >
         {badge && (
           <span className="absolute top-2 right-2 px-1.5 py-0.5 bg-[#0F172A] text-yellow-400 text-[9px] font-bold uppercase tracking-widest">
             {badge}
           </span>
         )}
-        <div className="aspect-square w-full flex items-center justify-center bg-gray-50 border-2 border-black group-hover:bg-white">
-          <Icon />
-        </div>
+        {isPremium ? (
+          <div className="w-20 h-20 rounded-full flex items-center justify-center bg-gradient-to-br from-gray-900 to-black border-2 border-yellow-400 shadow-xl mb-4 mx-auto">
+            <Icon />
+          </div>
+        ) : (
+          <div className="aspect-square w-full flex items-center justify-center bg-gray-50 border-2 border-black group-hover:bg-white">
+            <Icon />
+          </div>
+        )}
         <p className="mt-2 text-[12px] font-bold uppercase tracking-wider text-black">
           {title}
         </p>
@@ -256,171 +267,8 @@ function ServiceCard({ service, onSelect }: ServiceCardProps) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Icons — all inline SVG. No library dep, no font load, JIT-friendly.        */
-/* All viewBox="0 0 64 40" or "0 0 64 48" so silhouettes read at small sizes. */
+/* Icons — Package keeps its inline SVG; the four ride services use lucide.   */
 /* -------------------------------------------------------------------------- */
-
-function TaxiIcon() {
-  return (
-    <svg
-      viewBox="0 0 64 40"
-      width="56"
-      height="35"
-      aria-hidden="true"
-      className="text-black"
-    >
-      {/* Roof sign */}
-      <rect x="26" y="2" width="12" height="6" fill="#0F172A" />
-      <rect x="28" y="3.5" width="8" height="3" fill="#EAFF00" />
-      {/* Body */}
-      <path
-        d="M6 26 L12 14 L52 14 L58 26 L58 32 L52 32 L52 28 L12 28 L12 32 L6 32 Z"
-        fill="#EAFF00"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      {/* Windows */}
-      <path
-        d="M16 16 L20 22 L44 22 L48 16 Z"
-        fill="white"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
-      <line x1="32" y1="16" x2="32" y2="22" stroke="currentColor" strokeWidth="1.5" />
-      {/* Wheels */}
-      <circle cx="18" cy="32" r="4" fill="#0F172A" stroke="currentColor" strokeWidth="2" />
-      <circle cx="46" cy="32" r="4" fill="#0F172A" stroke="currentColor" strokeWidth="2" />
-      {/* Checker stripe */}
-      <rect x="14" y="24" width="3" height="2" fill="#0F172A" />
-      <rect x="20" y="24" width="3" height="2" fill="#0F172A" />
-      <rect x="26" y="24" width="3" height="2" fill="#0F172A" />
-      <rect x="32" y="24" width="3" height="2" fill="#0F172A" />
-      <rect x="38" y="24" width="3" height="2" fill="#0F172A" />
-      <rect x="44" y="24" width="3" height="2" fill="#0F172A" />
-    </svg>
-  );
-}
-
-function MotorcycleIcon() {
-  return (
-    <svg
-      viewBox="0 0 64 40"
-      width="56"
-      height="35"
-      aria-hidden="true"
-      className="text-black"
-    >
-      {/* Wheels */}
-      <circle cx="14" cy="30" r="7" fill="white" stroke="currentColor" strokeWidth="2" />
-      <circle cx="14" cy="30" r="2" fill="currentColor" />
-      <circle cx="50" cy="30" r="7" fill="white" stroke="currentColor" strokeWidth="2" />
-      <circle cx="50" cy="30" r="2" fill="currentColor" />
-      {/* Frame */}
-      <path
-        d="M14 30 L26 18 L38 18 L42 14 L48 14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="square"
-      />
-      <path
-        d="M50 30 L42 18 L34 18"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="square"
-      />
-      {/* Seat */}
-      <rect x="26" y="14" width="14" height="4" fill="#0F172A" />
-      {/* Headlight */}
-      <rect x="46" y="11" width="6" height="4" fill="#EAFF00" stroke="currentColor" strokeWidth="1.5" />
-      {/* Handlebar */}
-      <line x1="44" y1="9" x2="52" y2="9" stroke="currentColor" strokeWidth="2" />
-    </svg>
-  );
-}
-
-function MicrobusIcon() {
-  return (
-    <svg
-      viewBox="0 0 64 40"
-      width="56"
-      height="35"
-      aria-hidden="true"
-      className="text-black"
-    >
-      {/* Body — boxy van shape */}
-      <path
-        d="M6 30 L6 12 L50 12 L58 20 L58 30 Z"
-        fill="white"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      {/* Front windshield */}
-      <path
-        d="M50 14 L56 20 L50 20 Z"
-        fill="#EAFF00"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
-      {/* Side windows — three passenger windows = "shared" */}
-      <rect x="10" y="15" width="9" height="6" fill="#EAFF00" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="22" y="15" width="9" height="6" fill="#EAFF00" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="34" y="15" width="9" height="6" fill="#EAFF00" stroke="currentColor" strokeWidth="1.5" />
-      {/* Side stripe */}
-      <rect x="6" y="24" width="52" height="2" fill="#0F172A" />
-      {/* Wheels */}
-      <circle cx="16" cy="32" r="4" fill="#0F172A" stroke="currentColor" strokeWidth="2" />
-      <circle cx="48" cy="32" r="4" fill="#0F172A" stroke="currentColor" strokeWidth="2" />
-    </svg>
-  );
-}
-
-function VipCarIcon() {
-  return (
-    <svg
-      viewBox="0 0 64 40"
-      width="56"
-      height="35"
-      aria-hidden="true"
-      className="text-black"
-    >
-      {/* Body — sleek sedan */}
-      <path
-        d="M4 30 L10 18 L20 14 L44 14 L54 18 L60 30 L60 32 L52 32 L52 28 L12 28 L12 32 L4 32 Z"
-        fill="#0F172A"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      {/* Windows — tinted */}
-      <path
-        d="M14 18 L22 16 L42 16 L50 18 L46 22 L18 22 Z"
-        fill="#1f2937"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
-      <line x1="32" y1="16" x2="32" y2="22" stroke="currentColor" strokeWidth="1" />
-      {/* Sulfur door handle accent */}
-      <rect x="28" y="24" width="8" height="1.5" fill="#EAFF00" />
-      {/* Wheels — chromed look via thicker outline */}
-      <circle cx="16" cy="32" r="4" fill="#0F172A" stroke="#EAFF00" strokeWidth="1.5" />
-      <circle cx="48" cy="32" r="4" fill="#0F172A" stroke="#EAFF00" strokeWidth="1.5" />
-      {/* "VIP" tag */}
-      <rect x="26" y="6" width="12" height="5" fill="#EAFF00" stroke="currentColor" strokeWidth="1" />
-      <text
-        x="32"
-        y="10"
-        textAnchor="middle"
-        fontSize="4"
-        fontWeight="bold"
-        fill="#0F172A"
-        fontFamily="monospace"
-      >
-        VIP
-      </text>
-    </svg>
-  );
-}
 
 function PackageIcon() {
   return (
