@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 import { Car, Bike, Bus, CarTaxiFront } from "lucide-react";
+import LanguageToggle from "@/components/LanguageToggle";
 import type { ServiceType } from "@/lib/api";
 
 /* -------------------------------------------------------------------------- */
@@ -125,16 +126,19 @@ export default function ServicesHub({
             Services
           </h1>
         </div>
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close services"
-            className="px-3 py-1.5 border-2 border-yellow-400 bg-transparent text-yellow-400 text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-400 hover:text-black active:translate-y-[1px]"
-          >
-            Close
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <LanguageToggle variant="dark" />
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close services"
+              className="px-3 py-1.5 border-2 border-yellow-400 bg-transparent text-yellow-400 text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-400 hover:text-black active:translate-y-[1px]"
+            >
+              Close
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="px-4 py-5 max-w-3xl mx-auto">
