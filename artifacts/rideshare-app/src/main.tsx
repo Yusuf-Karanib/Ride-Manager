@@ -5,6 +5,7 @@ import AdminPanel from "./pages/AdminPanel";
 import { UserProvider } from "./context/UserContext";
 import AppErrorBoundary from "./components/AppErrorBoundary";
 import { registerServiceWorker } from "./lib/registerServiceWorker";
+import "./i18n";
 import "./index.css";
 
 const basename = import.meta.env.BASE_URL.replace(/\/$/, "");
