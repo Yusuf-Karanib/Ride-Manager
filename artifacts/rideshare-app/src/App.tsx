@@ -11,6 +11,7 @@ import ActiveRideScreen from "@/pages/ActiveRideScreen";
 import BannedScreen from "@/pages/BannedScreen";
 import ServicesHub, { type ServiceId } from "@/pages/ServicesHub";
 import RequestForm from "@/pages/RequestForm";
+import ActivityScreen from "@/pages/ActivityScreen";
 import Layout from "@/components/Layout";
 import { useUser } from "@/context/UserContext";
 
@@ -193,12 +194,7 @@ function AppContent() {
       </Route>
       <Route path="/activity">
         <Layout>
-          <div className="px-6 py-8" data-testid="placeholder-activity">
-            <h1 className="text-2xl font-bold uppercase tracking-wider">
-              Activity
-            </h1>
-            <p className="mt-2 text-sm text-black/60">Coming soon.</p>
-          </div>
+          <ActivityScreen />
         </Layout>
       </Route>
       <Route path="/profile">
