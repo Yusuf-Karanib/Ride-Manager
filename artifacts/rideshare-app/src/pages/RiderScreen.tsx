@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { LazyRiderMap } from "@/components/LazyMap";
 import RiderNegotiation from "@/components/RiderNegotiation";
+import { useUser } from "@/context/UserContext";
 
 interface RiderScreenProps {
   onRequestRide: (agreedPriceSyp: number) => void;
@@ -21,9 +23,21 @@ export default function RiderScreen({ onRequestRide, onSignOut }: RiderScreenPro
   const [dropoff, setDropoff] = useState("");
   const [price, setPrice] = useState<string>("");
   const [negotiationOpen, setNegotiationOpen] = useState(false);
+  const { userType } = useUser();
+  const [, setLocation] = useLocation();
+
+  const isAuthenticated = userType !== null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Auth gate: unauthenticated visitors can browse and fill the form,
+    // but submitting bounces them through AuthScreen first. After they
+    // authenticate and pick "Rider", App.tsx routes them back to "/" so
+    // they can resubmit with the (still-mounted) form values intact.
+    if (!isAuthenticated) {
+      setLocation("/auth");
+      return;
+    }
     setNegotiationOpen(true);
   };
 
@@ -37,10 +51,10 @@ export default function RiderScreen({ onRequestRide, onSignOut }: RiderScreenPro
       <div className="h-1/2 w-full relative">
         <div className="absolute top-3 right-3 z-[1000]">
           <button
-            onClick={onSignOut}
+            onClick={isAuthenticated ? onSignOut : () => setLocation("/auth")}
             className="px-3 py-1.5 bg-white text-sm font-medium text-gray-900 border border-gray-300 shadow"
           >
-            Sign out
+            {isAuthenticated ? "Sign out" : "Sign in"}
           </button>
         </div>
         <LazyRiderMap center={DAMASCUS} zoom={13} />
@@ -109,7 +123,7 @@ export default function RiderScreen({ onRequestRide, onSignOut }: RiderScreenPro
             type="submit"
             className="mt-4 w-full py-4 bg-black text-white text-base font-bold uppercase tracking-wider border-2 border-black hover:bg-gray-900"
           >
-            Request Ride
+            {isAuthenticated ? "Request Ride" : "Sign in to Request"}
           </button>
         </form>
       </div>
