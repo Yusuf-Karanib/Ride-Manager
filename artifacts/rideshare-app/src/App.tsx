@@ -9,6 +9,7 @@ import RiderScreen from "@/pages/RiderScreen";
 import DriverScreen from "@/pages/DriverScreen";
 import ActiveRideScreen from "@/pages/ActiveRideScreen";
 import BannedScreen from "@/pages/BannedScreen";
+import ServicesHub from "@/pages/ServicesHub";
 import { useUser } from "@/context/UserContext";
 
 const queryClient = new QueryClient();
@@ -26,7 +27,13 @@ function generateDeviceId(): string {
 }
 
 type Role = "rider" | "driver" | null;
-type Screen = "auth" | "role-select" | "rider" | "driver" | "active-ride";
+type Screen =
+  | "auth"
+  | "role-select"
+  | "services"
+  | "rider"
+  | "driver"
+  | "active-ride";
 
 
 
@@ -41,11 +48,12 @@ function AppContent() {
   // into UserContext so consumers see a consistent userType.
   const { loginAsRider, loginAsDriver, logout } = useUser();
   const [, setLocation] = useLocation();
-  // Public-by-default: unauthenticated users land on the rider experience
-  // at `/`. AuthScreen is still reachable explicitly via `/auth` and is
-  // entered from RoleSelectScreen for users who want to drive.
+  // Default home is the services grid. ServicesHub imports zero map code,
+  // so the Leaflet/MapPicker/RiderMap dynamic chunks (lazy-loaded by
+  // <LazyRiderMap>) stay un-fetched until the user opts into a flow that
+  // actually needs the map — i.e. the map does not load at app start.
   // Driver/active-ride routes remain gated by the inline role checks below.
-  const [screen, setScreen] = useState<Screen>("rider");
+  const [screen, setScreen] = useState<Screen>("services");
   const [agreedPriceSyp, setAgreedPriceSyp] = useState<number>(0);
 
   useEffect(() => {
@@ -92,18 +100,26 @@ function AppContent() {
 
   const handleEndRide = () => {
     setAgreedPriceSyp(0);
-    setScreen(role === "rider" ? "rider" : "driver");
+    // Riders return to the services grid (the new home). Drivers still
+    // return to their feed since "services" is rider-facing.
+    setScreen(role === "rider" ? "services" : "driver");
   };
 
   const handleSignOut = () => {
     setRole(null);
     setEmail("");
     setAgreedPriceSyp(0);
-    // Land back on the public rider screen, not AuthScreen — matches the
-    // public-by-default routing change. Sign-in is reachable via `/auth`
-    // or the in-screen "Sign in" button.
-    setScreen("rider");
+    // Land back on the public services grid, the new home.
+    setScreen("services");
     logout();
+  };
+
+  const handleSelectService = (_id: string) => {
+    // Minimum-viable wiring: any service tile routes into the existing
+    // rider request flow. The selected service id is NOT yet plumbed
+    // through to RiderScreen / createRide — that's a follow-up tied to
+    // serviceIdToServiceType() in ServicesHub.
+    setScreen("rider");
   };
 
   const renderCurrent = () => {
@@ -118,6 +134,9 @@ function AppContent() {
           onSignOut={handleSignOut}
         />
       );
+    }
+    if (screen === "services") {
+      return <ServicesHub onSelect={handleSelectService} />;
     }
     if (screen === "rider") {
       return <RiderScreen onRequestRide={handleRequestRide} onSignOut={handleSignOut} />;
