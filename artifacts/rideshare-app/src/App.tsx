@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
+import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,6 +9,7 @@ import RiderScreen from "@/pages/RiderScreen";
 import DriverScreen from "@/pages/DriverScreen";
 import ActiveRideScreen from "@/pages/ActiveRideScreen";
 import BannedScreen from "@/pages/BannedScreen";
+import { useUser } from "@/context/UserContext";
 
 const queryClient = new QueryClient();
 
@@ -34,6 +35,12 @@ function AppContent() {
   const [isBanned, setIsBanned] = useState<boolean>(false);
   const [email, setEmail] = useState<string>("");
   const [role, setRole] = useState<Role>(null);
+  // UserContext is the canonical auth signal that downstream screens
+  // (RiderScreen, etc.) read via useUser(). App's local `email`/`role`
+  // state still drives the screen-state machine; we mirror auth events
+  // into UserContext so consumers see a consistent userType.
+  const { loginAsRider, loginAsDriver, logout } = useUser();
+  const [, setLocation] = useLocation();
   // Public-by-default: unauthenticated users land on the rider experience
   // at `/`. AuthScreen is still reachable explicitly via `/auth` and is
   // entered from RoleSelectScreen for users who want to drive.
@@ -56,11 +63,21 @@ function AppContent() {
   const handleAuthenticated = (userEmail: string) => {
     setEmail(userEmail);
     setScreen("role-select");
+    // If the user reached AuthScreen via the explicit `/auth` route (e.g.
+    // bounced from RiderScreen's auth gate), push them back to `/` so the
+    // state-driven flow can render RoleSelectScreen → role → RiderScreen.
+    // Otherwise the URL stays at `/auth` and the wouter Switch keeps
+    // rendering AuthScreen regardless of state transitions.
+    setLocation("/");
   };
 
   const handleSelectRole = (selectedRole: "rider" | "driver") => {
     setRole(selectedRole);
     setScreen(selectedRole);
+    // Mirror into UserContext so RiderScreen/DriverScreen/etc. can read
+    // userType as the auth signal instead of prop-drilling email/role.
+    if (selectedRole === "rider") loginAsRider();
+    else loginAsDriver();
   };
 
   const handleRequestRide = (price: number) => {
@@ -82,7 +99,11 @@ function AppContent() {
     setRole(null);
     setEmail("");
     setAgreedPriceSyp(0);
-    setScreen("auth");
+    // Land back on the public rider screen, not AuthScreen — matches the
+    // public-by-default routing change. Sign-in is reachable via `/auth`
+    // or the in-screen "Sign in" button.
+    setScreen("rider");
+    logout();
   };
 
   const renderCurrent = () => {
