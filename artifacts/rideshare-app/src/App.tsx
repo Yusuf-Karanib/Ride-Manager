@@ -9,7 +9,7 @@ import RiderScreen from "@/pages/RiderScreen";
 import DriverScreen from "@/pages/DriverScreen";
 import ActiveRideScreen from "@/pages/ActiveRideScreen";
 import BannedScreen from "@/pages/BannedScreen";
-import ServicesHub from "@/pages/ServicesHub";
+import ServicesHub, { type ServiceId } from "@/pages/ServicesHub";
 import { useUser } from "@/context/UserContext";
 
 const queryClient = new QueryClient();
@@ -55,6 +55,10 @@ function AppContent() {
   // Driver/active-ride routes remain gated by the inline role checks below.
   const [screen, setScreen] = useState<Screen>("services");
   const [agreedPriceSyp, setAgreedPriceSyp] = useState<number>(0);
+  // Captured at request time from RiderScreen's chip selection. Not yet
+  // persisted (createRide has zero callsites) — surfaces here so the
+  // future wiring has a canonical source.
+  const [, setSelectedServiceType] = useState<ServiceId>("taxi");
 
   useEffect(() => {
     const id = generateDeviceId();
@@ -88,8 +92,11 @@ function AppContent() {
     else loginAsDriver();
   };
 
-  const handleRequestRide = (price: number) => {
+  const handleRequestRide = (price: number, serviceType: ServiceId) => {
     setAgreedPriceSyp(price);
+    // Stored for downstream persistence (createRide is not yet wired —
+    // when it is, convert via serviceIdToServiceType() at that callsite).
+    setSelectedServiceType(serviceType);
     setScreen("active-ride");
   };
 
