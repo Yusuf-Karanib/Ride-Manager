@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { LazyMapPicker } from "@/components/LazyMap";
 import type { ServiceId } from "@/pages/ServicesHub";
 
 /* -------------------------------------------------------------------------- */
@@ -58,6 +59,10 @@ export default function RequestForm({
       : "",
   );
   const [error, setError] = useState<string | null>(null);
+  // Inline map expansion is scoped to the pickup field per the current
+  // spec. Dropoff still uses its inline "Map" button which defers to the
+  // parent's onPickOnMap callback (modal flow) if wired.
+  const [pickupMapOpen, setPickupMapOpen] = useState(false);
 
   const parsedPrice = parsePriceInput(priceText);
   const canSubmit =
@@ -126,17 +131,46 @@ export default function RequestForm({
         className="px-4 py-5 max-w-md mx-auto space-y-4"
         noValidate
       >
-        {/* Pickup */}
-        <LandmarkField
-          id="pickup"
-          label="Pickup landmark"
-          placeholder="e.g. Umayyad Square"
-          value={pickup}
-          onChange={setPickup}
-          onPickOnMap={
-            onPickOnMap ? () => onPickOnMap("pickup", setPickup) : undefined
-          }
-        />
+        {/* Pickup — inline map expansion lives below the field */}
+        <div>
+          <LandmarkField
+            id="pickup"
+            label="Pickup landmark"
+            placeholder="e.g. Umayyad Square"
+            value={pickup}
+            onChange={setPickup}
+            // Inline button suppressed; the prominent button below
+            // replaces it for the pickup field.
+            onPickOnMap={undefined}
+          />
+          <button
+            type="button"
+            onClick={() => setPickupMapOpen((open) => !open)}
+            aria-expanded={pickupMapOpen}
+            aria-controls="pickup-map-region"
+            className="mt-2 w-full bg-black text-yellow-400 border-2 border-black py-3 text-[12px] font-bold uppercase tracking-[0.2em] hover:bg-[#0F172A] active:translate-y-[1px] flex items-center justify-center gap-2"
+          >
+            <PinIcon />
+            {pickupMapOpen ? "Hide Map" : "Select on Map"}
+          </button>
+          {pickupMapOpen && (
+            <div
+              id="pickup-map-region"
+              className="mt-3 w-full border-2 border-black bg-white overflow-hidden"
+              style={{ height: 360 }}
+            >
+              <LazyMapPicker
+                mode="pickup"
+                onConfirm={(landmark) => {
+                  setPickup(landmark);
+                  setPickupMapOpen(false);
+                  if (error) setError(null);
+                }}
+                onCancel={() => setPickupMapOpen(false)}
+              />
+            </div>
+          )}
+        </div>
 
         {/* Dropoff */}
         <LandmarkField
