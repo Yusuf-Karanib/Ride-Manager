@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import type { ServiceType } from "@/lib/api";
 
 /* -------------------------------------------------------------------------- */
 /* Public surface                                                             */
@@ -10,6 +11,32 @@ export type ServiceId =
   | "microbus"
   | "vip"
   | "package";
+
+/**
+ * Map a UI-level ServiceId to the persistent `rides.service_type` value.
+ *
+ * The DB vocabulary is intentionally narrower than the UI:
+ *  - 'vip' collapses to 'taxi' (VIP is a tier multiplier, not a category)
+ *  - 'package' has no DB home yet (delivery flow is not built); it returns
+ *    null so callers must handle the unsupported case explicitly rather
+ *    than silently writing a wrong value.
+ *
+ * Returning null instead of throwing keeps the callsite shape simple
+ * (`const t = serviceIdToServiceType(id); if (!t) return ...`).
+ */
+export function serviceIdToServiceType(id: ServiceId): ServiceType | null {
+  switch (id) {
+    case "taxi":
+    case "vip":
+      return "taxi";
+    case "motorcycle":
+      return "bike";
+    case "microbus":
+      return "van";
+    case "package":
+      return null;
+  }
+}
 
 export interface ServicesHubProps {
   /** Fired when a service tile is tapped. Parent owns navigation. */

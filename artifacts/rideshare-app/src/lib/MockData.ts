@@ -1,7 +1,10 @@
+import type { ServiceType } from "@/lib/api";
+
 export interface MockRide {
   pickup: string;
   dropoff: string;
   initial_offer: number;
+  service_type: ServiceType;
   status: "open";
 }
 
@@ -11,23 +14,28 @@ export interface MockBid {
   status: "pending";
 }
 
+// Mock fixtures cover all three service categories so the driver-feed
+// filter UI has something visible to flip through during local dev.
 export const mockRides: MockRide[] = [
   {
     pickup: "Umayyad Square",
     dropoff: "Old City Gate",
     initial_offer: 25000,
+    service_type: "taxi",
     status: "open",
   },
   {
     pickup: "Kafarsouseh",
     dropoff: "Mezzeh Highway",
     initial_offer: 18000,
+    service_type: "bike",
     status: "open",
   },
   {
     pickup: "Bab Touma",
     dropoff: "Damascus University",
     initial_offer: 22000,
+    service_type: "van",
     status: "open",
   },
 ];
